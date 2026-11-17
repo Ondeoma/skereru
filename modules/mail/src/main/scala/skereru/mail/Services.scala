@@ -7,6 +7,7 @@ import io.circe.syntax.*
 import skereru.auth.AppPasswords
 import skereru.core.*
 import skereru.db.*
+import skereru.observe.{Metrics, Telemetry}
 import skereru.shared.*
 
 import java.io.{DataInputStream, DataOutputStream}
@@ -74,18 +75,23 @@ final class MailAuth(users: UserStore):
     // アカウント全体ではロックしない（ほかの人が失敗を重ねて、正しい利用者を締め出せないように）。
     // アプリパスワードは約75ビットあるので、分散した総当たりでも現実的には当たらない
     (users.lockedUntil(ipKey, now), users.lockedUntil(pairKey, now)).tupled.flatMap {
-      case (Some(_), _) | (_, Some(_)) => IO.sleep(scala.concurrent.duration.DurationInt(1).second).as(Left("認証の失敗が多いため、しばらくログインできません"))
+      case (Some(_), _) | (_, Some(_)) =>
+        Metrics.count("skereru.mail.logins", "proto" -> proto, "result" -> "locked") *>
+          IO.sleep(scala.concurrent.duration.DurationInt(1).second).as(Left("認証の失敗が多いため、しばらくログインできません"))
       case _ =>
         if login.trim.isEmpty || password.isEmpty || login.length > 320 || password.length > 200 then IO.pure(Left("ユーザー名かパスワードが違います"))
         else
           users.checkAppPassword(login.trim, AppPasswords.hash(password), ip.getHostAddress).flatMap {
-            case Some((u, _)) => users.clearFailures(pairKey).as(Right(u))
+            case Some((u, _)) =>
+              users.clearFailures(pairKey) *> Metrics.count("skereru.mail.logins", "proto" -> proto, "result" -> "ok") *>
+                Telemetry.tagUser(u.id.toString, u.name).as(Right(u))
             case None =>
               for
                 l1 <- users.recordFailure(ipKey, ipMax, windowSecs, lockSecs)
                 l3 <- users.recordFailure(pairKey, pairMax, windowSecs, lockSecs)
                 _  <- users.audit(None, proto, "mail.login.failed", Some(login.take(200)), Some(ip.getHostAddress))
                 _  <- IO.whenA(l1 || l3)(users.audit(None, proto, "mail.login.locked", Some(login.take(200)), Some(ip.getHostAddress)))
+                _  <- Metrics.count("skereru.mail.logins", "proto" -> proto, "result" -> "failed")
                 // 失敗の応答を遅らせて、総当たりを遅くする
                 _  <- IO.sleep(scala.concurrent.duration.DurationInt(1).second)
               yield Left("ユーザー名かパスワードが違います")
@@ -166,6 +172,9 @@ final class Delivery(mail: MailStore, domains: DomainStore, users: UserStore, qu
   /** DMARC の集計レポートを受け取ったとき（起動時に保存先をつなぐ）。 */
   @volatile var onDmarcReport: (Array[Byte], Boolean) => IO[Unit] = (_, _) => IO.unit
 
+  /** 受信トレイに新しいメールが届いたとき（ユーザー・メッセージ・解析した本文. 起動時にプッシュ通知をつなぐ）。待たずに裏で動かす。 */
+  @volatile var onInboxMail: (UUID, UUID, MimePart) => IO[Unit] = (_, _, _) => IO.unit
+
   /** アドレスが配送先として存在するか（+tag・キャッチオールも見る）。転送先は再帰的にたどる。 */
   def resolve(rcpt: String, depth: Int = 0): IO[Option[Target]] =
     val a = rcpt.toLowerCase
@@ -197,17 +206,26 @@ final class Delivery(mail: MailStore, domains: DomainStore, users: UserStore, qu
 
   /** 外から受け取ったメッセージ（ポート25）。迷惑メールの判定をして、宛先のユーザーに配る。 */
   def inbound(env: Envelope, raw0: Array[Byte]): IO[InboundResult] =
+    Telemetry.span("mail.inbound", "mail.rcpts" -> env.rcpts.size.toString)(inboundImpl(env, raw0)).flatTap {
+      case InboundResult.Accepted(_)    => IO.unit // 配った結果（delivered・junk）は inboundImpl で数える
+      case InboundResult.Rejected(_, _) => Metrics.count("skereru.mail.received", "result" -> "rejected")
+      case InboundResult.TempFail(_, _) => Metrics.count("skereru.mail.received", "result" -> "tempfail")
+    }
+
+  private def inboundImpl(env: Envelope, raw0: Array[Byte]): IO[InboundResult] =
     val root0 = Mime.parse(raw0)
     // 転送が回り続けているメール（Received が多すぎる）は受け取らない
     if root0.headerAll("Received").size > Delivery.MaxHops then
-      return IO.pure(InboundResult.Rejected("554 5.4.6", "Too many hops (mail loop detected)"))
+      return Metrics.count("skereru.mail.rejected", "reason" -> "loop").as(InboundResult.Rejected("554 5.4.6", "Too many hops (mail loop detected)"))
     for
       targets <- env.rcpts.traverse(r => resolve(r).map(r -> _))
       userIds  = targets.flatMap(_._2.toList.flatMap(_.users)).distinct
       res <- spam.check(raw0, root0, env.ip, env.helo, env.mailFrom, userIds.headOption, d => isLocal(d))
+      // 送信元の認証（SPF・DKIM・DMARC）の結果の内訳
+      _ <- Metrics.count("skereru.mail.auth", "spf" -> Delivery.word(res.auth.spf), "dkim" -> Delivery.word(res.auth.dkim), "dmarc" -> Delivery.word(res.auth.dmarc))
       out <- res.verdict.action match
         case SpamAction.Reject =>
-          queue.log("in", "rejected", Some(env.ip.getHostAddress), env.mailFrom, env.rcpts, raw0.length, Some(res.verdict.score), res.verdict.summary)
+          Metrics.count("skereru.mail.rejected", "reason" -> Delivery.rejectReason(res.verdict)) *> queue.log("in", "rejected", Some(env.ip.getHostAddress), env.mailFrom, env.rcpts, raw0.length, Some(res.verdict.score), res.verdict.summary)
             .as(InboundResult.Rejected("550 5.7.1", s"Message rejected as spam (score ${res.verdict.score})"))
         case action =>
           val proto = if env.tls then "ESMTPS" else "ESMTP"
@@ -225,6 +243,7 @@ final class Delivery(mail: MailStore, domains: DomainStore, users: UserStore, qu
             _ <- IO.whenA(fwds.nonEmpty && action != SpamAction.Junk)(forward(env.rcpts.headOption.getOrElse(""), env.mailFrom, fwds, raw, Some(res.header)))
             // 誰も受け取れなかった（容量の上限など）なら、黙って捨てずに一時エラーにして、相手に再送・通知してもらう
             allFailed = results.nonEmpty && results.forall(_._2.isLeft) && fwds.isEmpty
+            _ <- IO.whenA(!allFailed)(Metrics.count("skereru.mail.received", "result" -> (if action == SpamAction.Junk then "junk" else "delivered")))
             _ <- queue.log("in", if allFailed then "tempfail" else if action == SpamAction.Junk then "junk" else "delivered", Some(env.ip.getHostAddress),
                    env.mailFrom, env.rcpts, raw.length, Some(res.verdict.score), if allFailed then results.flatMap(_._2.left.toOption).mkString(" | ") else res.verdict.summary)
           yield
@@ -247,6 +266,10 @@ final class Delivery(mail: MailStore, domains: DomainStore, users: UserStore, qu
   /** ユーザーのメールボックスに入れる（許可・拒否の差出人、振り分けの規則、自動返信、容量）。 */
   def deliverToUsers(userIds: List[UUID], raw: Array[Byte], blobId: String, spamRes: Option[SpamFilter#Result], mailFrom: String, junk: Boolean,
       envelopeTo: List[String] = Nil): IO[List[(UUID, Either[String, UUID])]] =
+    Telemetry.span("mail.deliver", "mail.users" -> userIds.distinct.size.toString)(deliverToUsersImpl(userIds, raw, blobId, spamRes, mailFrom, junk, envelopeTo))
+
+  private def deliverToUsersImpl(userIds: List[UUID], raw: Array[Byte], blobId: String, spamRes: Option[SpamFilter#Result], mailFrom: String, junk: Boolean,
+      envelopeTo: List[String]): IO[List[(UUID, Either[String, UUID])]] =
     val root = Mime.parse(raw)
     val from = root.header("From").flatMap(Address.parseOne).map(_.address.toLowerCase).getOrElse(mailFrom.toLowerCase)
     userIds.distinct.traverse { uid =>
@@ -276,6 +299,9 @@ final class Delivery(mail: MailStore, domains: DomainStore, users: UserStore, qu
               meta = Indexer.index(raw, blobId, Instant.now(), flags, spamRes.map(_.verdict), spamRes.map(_.json), Some(root))
               m <- mail.insert(uid, box2.get.id, meta)
               _ <- notify(uid)
+              // 受信トレイに入った（迷惑メール・既読にする規則のものを除く）新着は、プッシュ通知で知らせる
+              _ <- IO.whenA(!isJunk && !o.markRead && box2.exists(_.specialUse.contains(SpecialUse.Inbox)))(
+                     onInboxMail(uid, m.id, root).handleErrorWith(e => IO(log(s"[deliver] new mail hook: $e"))).start.void)
               _ <- IO.whenA(o.forwards.nonEmpty && !isJunk)(ruleForward(uid, mailFrom, o.forwards, raw, spamRes.map(_.header)).handleErrorWith(e => IO(log(s"[deliver] forward: $e"))))
               // 自動返信は、返信先（エンベロープの差出人）が認証されたメールにだけ返す（偽の差出人への返信＝バックスキャッターを防ぐ）。
               // SPF はエンベロープの差出人のドメインで調べている。DKIM は署名のドメインが返信先と同じ組織のときだけ認める
@@ -339,6 +365,10 @@ final class Delivery(mail: MailStore, domains: DomainStore, users: UserStore, qu
   /** 認証したユーザーが送る（SMTP の submission・画面・API）。From は自分のアドレスに限る。
     * 戻り値は (このサーバーの宛先に配った数, 外への送信待ちにした数)。 */
   def submit(user: User, mailFrom: String, rcpts: List[String], raw0: Array[Byte], via: String, ip: Option[String]): IO[Either[String, (Int, Int)]] =
+    Telemetry.span("mail.submit", "mail.via" -> via, "mail.rcpts" -> rcpts.size.toString)(submitImpl(user, mailFrom, rcpts, raw0, via, ip))
+      .flatTap(r => Metrics.count("skereru.mail.submitted", "via" -> Delivery.viaLabel(via), "result" -> (if r.isRight then "accepted" else "refused")))
+
+  private def submitImpl(user: User, mailFrom: String, rcpts: List[String], raw0: Array[Byte], via: String, ip: Option[String]): IO[Either[String, (Int, Int)]] =
     val root = Mime.parse(raw0)
     val fromAddrs = root.header("From").toList.flatMap(Address.parseList).map(_.address.toLowerCase)
     for
@@ -398,6 +428,30 @@ object Delivery:
   val DmarcReportsLocal = "dmarc-reports"
   /** これより多くの Received があるメールはループとみなす（RFC 5321 6.3 の目安は 100）。 */
   val MaxHops = 50
+
+  /** 認証の結果（"pass (d=…)" など）の最初の語（メトリクスの属性）。 */
+  private[mail] def word(s: String): String = s.trim.takeWhile(c => !c.isWhitespace && c != '(').toLowerCase match
+    case "" => "none"
+    case w  => w
+
+  /** 迷惑メールとして拒否した主な理由（メトリクスの属性）。 */
+  private[mail] def rejectReason(v: SpamVerdict): String =
+    val rules = v.hits.map(_.rule).toSet
+    if rules("VIRUS") then "virus"
+    else if rules("DMARC_REJECT") || rules("DMARC_QUARANTINE") then "dmarc"
+    else if rules("SPOOFED_LOCAL_DOMAIN") then "spoofing"
+    else if rules("SPF_FAIL") then "spf"
+    else if rules("DKIM_INVALID") then "dkim"
+    else if rules("RCVD_IN_DNSBL") then "dnsbl"
+    else "spam"
+
+  /** 送信の経路（ESMTPSA・画面など）を、メトリクスの属性の少ない値にまとめる。 */
+  private[mail] def viaLabel(via: String): String =
+    via.toUpperCase match
+      case v if v.startsWith("ESMTP") => "smtp"
+      case "HTTPS"                    => "web"
+      case "HTTPSA"                   => "api"
+      case _                          => "other"
 
 /** DKIM の署名（From のドメインの鍵で）。 */
 final class Signer(domains: DomainStore, box: skereru.auth.SecretBox, dns: Option[Dns] = None):

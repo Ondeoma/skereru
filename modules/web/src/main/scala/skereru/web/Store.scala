@@ -7,7 +7,6 @@ import skereru.shared.*
 import scala.concurrent.Future
 import scala.scalajs.concurrent.JSExecutionContext.Implicits.queue
 import scala.scalajs.js
-import scala.scalajs.js.annotation.JSGlobal
 import scala.util.{Failure, Success}
 
 final case class Toast(id: Int, text: String, error: Boolean, undo: Option[() => Unit], undoLabel: String = "元に戻す")
@@ -257,56 +256,6 @@ final case class Opt(value: String, label: String, icon: String = "", color: Str
 object Opt {
   def of(xs: List[(String, String)]): List[Opt] = xs.map((v, l) => Opt(v, l))
   def names(xs: List[String]): List[Opt] = xs.map(x => Opt(x, x))
-}
-
-/** メールのファイル（mbox・.eml）の取り込み（frontend/src/importer.js）. */
-@js.native
-@JSGlobal("skereruImport")
-private object ImportFacade extends js.Object {
-  def importFiles(files: js.Any, opts: js.Object): js.Promise[js.Dynamic] = js.native
-}
-
-object FileImport {
-  /** 進み具合: 読んだ量・全体・取り込んだ数・重複・失敗・読んでいるファイル. */
-  final case class Progress(read: Double, total: Double, imported: Int, skipped: Int, failed: Int, file: String)
-
-  def run(files: dom.FileList, onProgress: Progress => Unit, cancelled: () => Boolean): scala.concurrent.Future[Progress] = {
-    def conv(d: js.Dynamic): Progress =
-      Progress(d.read.asInstanceOf[Double], d.total.asInstanceOf[Double], d.imported.asInstanceOf[Int], d.skipped.asInstanceOf[Int],
-        d.failed.asInstanceOf[Int], d.file.asInstanceOf[js.UndefOr[String]].getOrElse(""))
-    val opts = js.Dynamic.literal(
-      onProgress = ((d: js.Dynamic) => onProgress(conv(d))): js.Function1[js.Dynamic, Unit],
-      isCancelled = (() => cancelled()): js.Function0[Boolean])
-    ImportFacade.importFiles(files, opts.asInstanceOf[js.Object]).toFuture.map(conv)(scala.scalajs.concurrent.JSExecutionContext.queue)
-  }
-}
-
-/** メールの作成のエディタ（frontend/src/editor.js の Tiptap）. */
-@js.native
-@JSGlobal("skereruEditor")
-private object EditorFacade extends js.Object {
-  def create(el: dom.Element, opts: js.Object): EditorHandle = js.native
-}
-
-@js.native
-trait EditorHandle extends js.Object {
-  def getHTML(): String = js.native
-  def getText(): String = js.native
-  def isEmpty(): Boolean = js.native
-  def focus(): Unit = js.native
-  def destroy(): Unit = js.native
-}
-
-object Editor {
-  /** onFiles: 本文にドロップされたファイル（添付する）. */
-  def create(el: dom.Element, html: String, placeholder: String, onChange: () => Unit, onFiles: List[dom.File] => Unit): EditorHandle =
-    EditorFacade.create(el, js.Dynamic.literal(html = html, placeholder = placeholder, onChange = (() => onChange()): js.Function0[Unit],
-      onFiles = ((fs: js.Array[dom.File]) => onFiles(fs.toList)): js.Function1[js.Array[dom.File], Unit],
-      // リンクの URL の入力（ブラウザ標準の window.prompt の代わりに、アプリのダイアログ）
-      prompt = askUrl).asInstanceOf[js.Object])
-
-  private val askUrl: js.Function3[String, String, js.Function1[String, Unit], Unit] =
-    (msg: String, default: String, f: js.Function1[String, Unit]) => Dialog.prompt(msg, default)(v => f(v))
 }
 
 /** 日時の選択（予約送信・スヌーズ）. 「明日の朝」などの候補と、日時の入力. */

@@ -17,9 +17,12 @@ object MailServers:
     for
       disp <- Dispatcher.parallel[IO](await = false)
       b = new Bridge(disp)
-      smtp = (mode: SmtpMode) => (c: Conn) => new SmtpSession(c, mode, cfg, tls, b, delivery, auth, queue, log).run()
-      imap = (c: Conn) => new ImapSession(c, cfg, tls, b, mail, blobs, queue, auth, log).run()
-      pop3 = (c: Conn) => new Pop3Session(c, cfg, tls, b, mail, blobs, auth).run()
+      // 1つの接続（セッション）を1つのスパンにする（中の DB・配送などはその子）。接続中の数はメトリクスに出す
+      session = (proto: String, c: Conn) => (run: Bridge => Unit) =>
+        b.tracking(s"skereru.$proto.connections")(b.span(s"$proto.session", "net.peer.ip" -> c.clientIp.getHostAddress, "server.port" -> c.localPort.toString)(run))
+      smtp = (mode: SmtpMode) => (c: Conn) => session("smtp", c)(sb => new SmtpSession(c, mode, cfg, tls, sb, delivery, auth, queue, log).run())
+      imap = (c: Conn) => session("imap", c)(sb => new ImapSession(c, cfg, tls, sb, mail, blobs, queue, auth, log).run())
+      pop3 = (c: Conn) => session("pop3", c)(sb => new Pop3Session(c, cfg, tls, sb, mail, blobs, auth).run())
       listeners = List(
         cfg.smtpPort.map(p => (Listener("smtp", p, false), smtp(SmtpMode.Mx))),
         cfg.submissionPort.map(p => (Listener("submission", p, false), smtp(SmtpMode.Submission))),

@@ -18,6 +18,7 @@ import skereru.auth.{OidcClient, OidcConfig, SecretBox}
 import skereru.core.SpamThresholds
 import skereru.db.*
 import skereru.mail.*
+import skereru.observe.{HttpClientTelemetry, HttpTelemetry, Metrics, RumRoutes, Telemetry}
 import skereru.shared.ErrorDto
 import skereru.storage.*
 
@@ -167,18 +168,28 @@ object Config:
 
 object Main extends IOApp.Simple:
 
+  // ログにトレースの ID・操作したユーザーを載せるため、IOLocal の文脈を Java のライブラリから見えるようにする
+  // （IORuntime を作る前に設定する必要がある. オブジェクトの初期化は main より先に動く）
+  Telemetry.prepare()
+
+  private val version = Option(getClass.getPackage.getImplementationVersion).orElse(sys.env.get("APP_VERSION")).getOrElse("dev")
+
   private given org.typelevel.log4cats.LoggerFactory[IO] = org.typelevel.log4cats.slf4j.Slf4jFactory.create[IO]
 
-  private val log: String => Unit = s => System.out.println(s)
+  // メールのプロトコル（スレッドで動く処理）のログ. 標準出力と skorimako に、トレースの ID 付きで出る
+  private val log: String => Unit = skereru.observe.Log.line
 
   def run: IO[Unit] =
     for
       cfg <- Config.load
       n   <- migrateWithRetry(cfg)
-      _   <- IO.println(s"[skereru] database migrated ($n migration(s) applied); node ${cfg.nodeId}")
+      _   <- skereru.observe.Log.println(s"[skereru] database migrated ($n migration(s) applied); node ${cfg.nodeId}")
       _ <- (for
+        _    <- Telemetry.resource("skereru", version, runtime)
         xa   <- Database.transactor(cfg.db)
-        http <- EmberClientBuilder.default[IO].withTimeout(30.seconds).build
+        _    <- gauges(xa, cfg)
+        // 外への呼び出しもトレースに出す（traceparent を付けて送る）
+        http <- EmberClientBuilder.default[IO].withTimeout(30.seconds).build.map(HttpClientTelemetry(_))
         users   = new UserStore(xa)
         domains = new DomainStore(xa)
         mail    = new MailStore(xa)
@@ -207,12 +218,16 @@ object Main extends IOApp.Simple:
         importer = new Importer(mail, imports, blobs, box, dns, cfg.mail, log, changes.publish)
         invites  = new InviteService(mailSvc, users, domains, mail, delivery, box, http, cfg.skuakaUrl, cfg.mail)
         worker   = new OutboundWorker(queue, blobs, new SmtpClient(cfg.mail, dns), delivery, cfg.mail, log)
+        pushStore = new skereru.push.PushStore(xa)
+        push    <- Resource.eval(skereru.push.PushService.create(pushStore, http, cfg.api.publicUrl, "skereru"))
         _ <- Resource.eval(delivery.refreshDomains *> startupNotes(cfg))
         // DMARC の集計レポートは、このサーバーのドメインについてのものだけを保存する
         _ = delivery.onDmarcReport = (raw, authenticated) =>
               skereru.core.DmarcReport.fromMessage(raw) match
                 case Left(e)  => IO(log(s"[dmarc] unreadable report: $e"))
                 case Right(a) => delivery.isLocalDomain(a.domain).ifM(dmarc.save(a, authenticated), IO(log(s"[dmarc] report for unknown domain ${a.domain}")))
+        // 受信トレイに届いた新着は、この端末で受け取る設定（PWA のプッシュ通知）にしていれば、ブラウザを閉じていても知らせる
+        _ = delivery.onInboxMail = (uid, id, root) => push.send(uid, newMailPush(id, root))
         _ <- MailServers.start(MailServers.Deps(cfg.mail, Some(tls), delivery, mailAuth, mail, blobs, queue, dns, log))
         loops = List[IO[Unit]](
           worker.loop, worker.expireLoop,
@@ -237,19 +252,23 @@ object Main extends IOApp.Simple:
             new ImportRoutes(importer, imports, mail, blobs, sess).routes <+>
             new InviteRoutes(invites, sess).routes <+>
             new AdminRoutes(adminSvc, users, domains, mail, queue, delivery, dmarc, sess).routes <+>
-            new WellKnownRoutes(domains, cfg.mail, cfg.stsMode).routes
+            new WellKnownRoutes(domains, cfg.mail, cfg.stsMode).routes <+>
+            RumRoutes.routes <+>
+            new PushRoutes(pushStore, push, sess).routes
         app = rest <+> new McpRoutes(rest, sess, cfg.api.publicUrl, cfg.api.version).routes
         all = cfg.staticDir.fold(app)(d => app <+> spa(d))
+        httpApp <- HttpTelemetry(SecurityHeaders(cfg.api)(org.http4s.server.middleware.EntityLimiter.httpApp(
+                     ReqInfo.middleware(cfg.trustedProxies)(ErrorHandling.Custom.recoverWith(all.orNotFound)(handler)), cfg.api.maxUploadBytes + 1024 * 1024)),
+                     List("/api", "/auth", "/mcp", "/.well-known"))
         _ <- EmberServerBuilder.default[IO]
                .withHost(Host.fromString(cfg.httpBind).getOrElse(ipv4"0.0.0.0"))
                .withPort(Port.fromInt(cfg.port).getOrElse(port"8080"))
                .withShutdownTimeout(5.seconds)
                .withMaxHeaderSize(32 * 1024)
                // 本文の大きさの上限（添付ファイルの上限 + 1MB）。巨大な本文でメモリを使い切らせない
-               .withHttpApp(SecurityHeaders(cfg.api)(org.http4s.server.middleware.EntityLimiter.httpApp(
-                 ReqInfo.middleware(cfg.trustedProxies)(ErrorHandling.Custom.recoverWith(all.orNotFound)(handler)), cfg.api.maxUploadBytes + 1024 * 1024)))
+               .withHttpApp(httpApp)
                .build
-        _ <- Resource.eval(IO.println(s"[skereru] listening on :${cfg.port} (${cfg.api.publicUrl}), mail host ${cfg.mail.hostname}"))
+        _ <- Resource.eval(skereru.observe.Log.println(s"[skereru] listening on :${cfg.port} (${cfg.api.publicUrl}), mail host ${cfg.mail.hostname}"))
       yield ()).useForever
     yield ()
 
@@ -257,8 +276,33 @@ object Main extends IOApp.Simple:
   private def migrateWithRetry(cfg: AppConfig, attempt: Int = 1): IO[Int] =
     Database.migrate(cfg.db).handleErrorWith { e =>
       if attempt >= 60 then IO.raiseError(e)
-      else IO.println(s"[skereru] database not ready (${e.getMessage.take(120)}); retry $attempt/60") *> IO.sleep(2.seconds) *> migrateWithRetry(cfg, attempt + 1)
+      else skereru.observe.Log.println(s"[skereru] database not ready (${e.getMessage.take(120)}); retry $attempt/60") *> IO.sleep(2.seconds) *> migrateWithRetry(cfg, attempt + 1)
     }
+
+  /** DB から定期的に読むメトリクス（skorimako のダッシュボード・アラート用）。 */
+  private def gauges(xa: doobie.Transactor[IO], cfg: AppConfig): Resource[IO, Unit] =
+    def q(sqlText: doobie.Fragment): IO[Long] = sqlText.query[Long].unique.transact(xa)
+    val quota = cfg.mail.defaultQuotaBytes
+    List(
+      Metrics.gauge("skereru.users.total", "有効なユーザーの数")(q(sql"select count(*) from app_user where not disabled")),
+      Metrics.gauge("skereru.users.active_24h", "24時間以内に画面にログインしたユーザーの数")(q(sql"select count(*) from app_user where last_login_at > now() - interval '24 hours'")),
+      Metrics.gauge("skereru.sessions.active", "有効なセッションの数")(q(sql"select count(*) from session where expires_at > now()")),
+      Metrics.gauge("skereru.domains.total", "有効なドメインの数")(q(sql"select count(*) from domain where enabled")),
+      Metrics.gauge("skereru.queue.outbound", "外への送信待ちの数（配送のキューの長さ）")(q(sql"select count(*) from outbound where status = 'queued'")),
+      Metrics.gauge("skereru.queue.outbound_retrying", "送信待ちのうち、再送中のものの数")(q(sql"select count(*) from outbound where status = 'queued' and attempts > 0")),
+      Metrics.gauge("skereru.scheduled.pending", "予約送信の待ちの数")(q(sql"select count(*) from scheduled_send where status = 'queued'")),
+      Metrics.gauge("skereru.imports.active", "実行中・待ちの取り込みの数")(q(sql"select count(*) from import_job where status in ('queued', 'running')")),
+      Metrics.gauge("skereru.mailbox.used_bytes", "メールボックスの使用量の合計（バイト）")(q(sql"select coalesce(sum(used_bytes), 0)::bigint from app_user")),
+      Metrics.gauge("skereru.mailbox.near_quota", "容量の90%以上を使っているユーザーの数")(
+        q(sql"select count(*) from app_user where not disabled and used_bytes >= 0.9 * coalesce(quota_bytes, $quota)")),
+      Metrics.gauge("skereru.mail.received_24h", "24時間以内に外から受け取ったメールの数")(q(sql"select count(*) from mail_log where direction = 'in' and at > now() - interval '24 hours'"))
+    ).sequence_
+
+  /** 新着のプッシュ通知の中身（差出人・件名. 開くとそのメール）。画面の新着の通知（Notify）と同じ tag にして、重ねて出さない。 */
+  private def newMailPush(id: java.util.UUID, root: skereru.core.MimePart): skereru.push.PushMessage =
+    val from = root.header("From").flatMap(skereru.core.Address.parseOne).map(a => a.nameDecoded.getOrElse(a.address)).getOrElse("新しいメール")
+    val subject = root.header("Subject").map(skereru.core.Mime.decodeHeader).map(_.trim).filter(_.nonEmpty).getOrElse("(件名なし)")
+    skereru.push.PushMessage(from, subject, s"/m/$id", Some("skereru-new"))
 
   /** ロードバランサー用のヘルスチェック。DB（プライマリ）に書けない状態なら 503。 */
   private def healthRoutes(xa: doobie.Transactor[IO], node: String): HttpRoutes[IO] = HttpRoutes.of[IO] {
@@ -266,7 +310,7 @@ object Main extends IOApp.Simple:
       sql"select not pg_is_in_recovery()".query[Boolean].unique.transact(xa).timeout(3.seconds).attempt.flatMap {
         case Right(true)  => text(Status.Ok, s"ok $node")
         case Right(false) => text(Status.ServiceUnavailable, "database is read-only (not primary)")
-        case Left(e)      => IO.println(s"[skereru] healthz: ${e.getMessage}") *> text(Status.ServiceUnavailable, "database unavailable")
+        case Left(e)      => skereru.observe.Log.println(s"[skereru] healthz: ${e.getMessage}") *> text(Status.ServiceUnavailable, "database unavailable")
       }
   }
 
@@ -274,13 +318,13 @@ object Main extends IOApp.Simple:
     IO.pure(Response[IO](status).withEntity(body)(using EntityEncoder.stringEncoder))
 
   private def startupNotes(cfg: AppConfig): IO[Unit] =
-    IO.whenA(cfg.oidc.isEmpty)(IO.println("[skereru] WARNING: OIDC が未設定です。開発用のログイン（DEV_LOGIN）を使います。本番では使わないでください")) *>
-      IO.whenA(cfg.mail.allowPlainAuth)(IO.println("[skereru] WARNING: ALLOW_PLAIN_AUTH=true のため、暗号化されていない接続でもパスワードを受け付けます（開発用）")) *>
-      IO.whenA(!cfg.encryptAtRest)(IO.println("[skereru] WARNING: ENCRYPT_AT_REST=false のため、メッセージを暗号化せずに保存します")) *>
-      IO.whenA(cfg.mail.relay.isEmpty)(IO.println("[skereru] 外への送信は MX へ直接行います（ポート25の外向きの通信が必要です。使えない環境では RELAY_HOST を設定してください）"))
+    IO.whenA(cfg.oidc.isEmpty)(skereru.observe.Log.println("[skereru] WARNING: OIDC が未設定です。開発用のログイン（DEV_LOGIN）を使います。本番では使わないでください")) *>
+      IO.whenA(cfg.mail.allowPlainAuth)(skereru.observe.Log.println("[skereru] WARNING: ALLOW_PLAIN_AUTH=true のため、暗号化されていない接続でもパスワードを受け付けます（開発用）")) *>
+      IO.whenA(!cfg.encryptAtRest)(skereru.observe.Log.println("[skereru] WARNING: ENCRYPT_AT_REST=false のため、メッセージを暗号化せずに保存します")) *>
+      IO.whenA(cfg.mail.relay.isEmpty)(skereru.observe.Log.println("[skereru] 外への送信は MX へ直接行います（ポート25の外向きの通信が必要です。使えない環境では RELAY_HOST を設定してください）"))
 
   private val handler: PartialFunction[Throwable, IO[Response[IO]]] = { case e =>
-    IO.println(s"[skereru] unhandled error: $e") *> InternalServerError(ErrorDto("サーバーでエラーが発生しました"))
+    IO(org.slf4j.LoggerFactory.getLogger("skereru").error("unhandled error", e)) *> InternalServerError(ErrorDto("サーバーでエラーが発生しました"))
   }
 
   /** ビルド済みの画面の配信。存在しないパスは index.html（SPA）。 */
@@ -297,9 +341,11 @@ object Main extends IOApp.Simple:
 
 /** すべての応答に付けるセキュリティのヘッダー（ルートが付けたものは上書きしない）。 */
 object SecurityHeaders:
+  // 画面のブラウザの観測（skorimako の RUM）の設定があれば、その SDK の読み込みと送信を許す
+  private val rum = RumRoutes.origin.fold("")(" " + _)
   private val csp =
-    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; " +
-      "connect-src 'self'; frame-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
+    s"default-src 'self'; script-src 'self'$rum; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; " +
+      s"connect-src 'self'$rum; frame-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
 
   def apply(cfg: ApiConfig)(app: HttpApp[IO]): HttpApp[IO] = cats.data.Kleisli { req =>
     app.run(req).map { r =>

@@ -35,7 +35,7 @@ final class AuthRoutes(oidc: Option[OidcClient], users: UserStore, adminSvc: Adm
       java.security.MessageDigest.isEqual(c.content.getBytes("UTF-8"), state.getBytes("UTF-8")))
 
   private def loggedIn(u: User, req: Request[IO]): IO[ResponseCookie] =
-    sessions.issue(u, req).flatTap(_ => users.audit(Some(u.id), "web", "auth.login", None, Some(ReqInfo.clientIp(req))))
+    sessions.issue(u, req).flatTap(_ => users.audit(Some(u.id), "web", "auth.login", None, Some(ReqInfo.clientIp(req))) *> skereru.observe.Metrics.count("skereru.logins", "via" -> "web"))
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     case req @ GET -> Root / "auth" / "login" =>

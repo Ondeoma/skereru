@@ -277,6 +277,7 @@ final class SmtpSession(conn: Conn, mode: SmtpMode, cfg: MailConfig, tls: Option
 
   private def finish(raw: Array[Byte]): Unit =
     val env = Envelope(conn.clientIp, helo.getOrElse(""), mailFrom.getOrElse(""), rcpts.toList, conn.isTls, user.map(_.id))
+    // 1通ごとの受け取り（inbound・submit）は Delivery がスパンにする（このセッションのスパンの子）
     mode match
       case SmtpMode.Mx =>
         b.run(delivery.inbound(env, raw)) match

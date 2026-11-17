@@ -28,6 +28,7 @@ val routes: PathPatternRoutes = List(
 )
 
 def mounted(s: State): Unit = {
+  Fallback.install(routes)
   Shortcuts.install()
   Notify.install()
   // ユーザーのメニューは、メニューとボタンの外をクリックしたとき・Esc キーで閉じる
@@ -43,6 +44,7 @@ def mounted(s: State): Unit = {
   if (dom.window.location.pathname.startsWith("/login")) s.ready := true
   else Store.report(Api.me()) { me =>
     Store.me := Some(me)
+    Observe.setUser(me.id.toString)
     Store.loadSettings()
     Store.loadMailboxes().foreach(_ => s.ready := true)
     Store.connect()

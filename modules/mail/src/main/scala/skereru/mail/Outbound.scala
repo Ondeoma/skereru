@@ -150,9 +150,15 @@ final class OutboundWorker(queue: QueueStore, blobs: skereru.storage.Blobs, clie
       blobs.get(o.blobId).flatMap {
         case None => IO.pure(batch.map(_.id -> OutboxResult.Skip("本体がありません")).toMap)
         case Some(raw) =>
-          IO.blocking(client.deliver(o.domain, o.sender, batch.map(_.recipient), raw)).flatMap { res =>
+          skereru.observe.Telemetry.span("smtp.outbound", "mail.domain" -> o.domain, "mail.rcpts" -> batch.size.toString)(
+            IO.blocking(client.deliver(o.domain, o.sender, batch.map(_.recipient), raw))).flatMap { res =>
             val perm = batch.flatMap(x => res.get(x.recipient).collect { case RcptResult.Perm(m) => x.recipient -> m })
             val sent = batch.count(x => res.get(x.recipient).contains(RcptResult.Ok))
+            val temp = batch.size - sent - perm.size
+            // 外への送信の結果（宛先ごと）
+            List("sent" -> sent, "bounced" -> perm.size, "tempfail" -> temp).traverse_ { (r, n) =>
+              IO.whenA(n > 0)(skereru.observe.Metrics.add("skereru.mail.sent", n.toLong, "result" -> r))
+            } *>
             queue.log("out", if perm.nonEmpty then "bounced" else if sent > 0 then "sent" else "tempfail", None, o.sender, batch.map(_.recipient), raw.length, None,
               res.values.collect { case RcptResult.Temp(m) => m; case RcptResult.Perm(m) => m }.mkString(" | ").take(500)) *>
               IO.whenA(perm.nonEmpty)(delivery.bounceToSender(o.sender, raw, perm)).as(batch.map { x =>

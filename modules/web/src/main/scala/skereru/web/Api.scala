@@ -18,14 +18,18 @@ final case class ApiError(status: Int, message: String) extends Exception(messag
  * 更新系の要求には X-Skereru ヘッダーを付ける（サーバーはこれがない Cookie の更新を拒否する＝CSRF 対策）. */
 object Api {
 
-  private def request(method: dom.HttpMethod, url: String, body: Option[Json] = None): Future[Option[Json]] = {
+  private def request(method: dom.HttpMethod, url: String, body: Option[Json] = None): Future[Option[Json]] =
+    raw(method, url, body.map(b => ("application/json", b.noSpaces)))
+
+  /** body は (Content-Type, 本文). */
+  private def raw(method: dom.HttpMethod, url: String, body: Option[(String, dom.BodyInit)]): Future[Option[Json]] = {
     val init = new dom.RequestInit {}
     init.method = method
     init.credentials = dom.RequestCredentials.`same-origin`
     val headers = js.Dictionary("X-Skereru" -> "1")
-    body.foreach { b =>
-      headers("Content-Type") = "application/json"
-      init.body = b.noSpaces
+    body.foreach { (ct, b) =>
+      headers("Content-Type") = ct
+      init.body = b
     }
     init.headers = headers
     dom.fetch(url, init).toFuture.flatMap(handle)
@@ -56,6 +60,10 @@ object Api {
   def postUnit(url: String, body: Json = Json.obj()): Future[Unit] = send(dom.HttpMethod.POST, url, Some(body))
   def putUnit(url: String, body: Json): Future[Unit] = send(dom.HttpMethod.PUT, url, Some(body))
   def patchUnit(url: String, body: Json): Future[Unit] = send(dom.HttpMethod.PATCH, url, Some(body))
+
+  /** バイナリの本文を送る（application/octet-stream）. */
+  def postBytes[A: Decoder](url: String, bytes: js.typedarray.Uint8Array): Future[A] =
+    raw(dom.HttpMethod.POST, url, Some(("application/octet-stream", bytes.asInstanceOf[dom.BodyInit]))).map(as[A])
 
   def enc(s: String): String = js.URIUtils.encodeURIComponent(s)
 

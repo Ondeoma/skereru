@@ -27,7 +27,7 @@ final class UserStore(xa: Transactor[IO]) extends TxStore(xa):
       bySub <- (fr"select" ++ cols ++ fr"from app_user u where u.oidc_sub = $sub").query[User].option
       res <- bySub match
         case Some(u) =>
-          sql"""update app_user set name = $name, email = $email, avatar_url = coalesce($avatar, avatar_url), last_login_at = now() where id = ${u.id}""".update.run *>
+          sql"""update app_user set name = $name, email = $email, avatar_url = $avatar, last_login_at = now() where id = ${u.id}""".update.run *>
             findC(u.id)
         case None =>
           email.traverse(e => (fr"select" ++ cols ++ fr"from app_user u where u.oidc_sub is null and lower(u.email) = lower($e) for update").query[User].option)

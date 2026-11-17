@@ -286,6 +286,8 @@ def port(f: ClientConfigDto => Option[Int]) = cfg.mapC(_.flatMap(f).map(_.toStri
         <div class="field" title="この端末のブラウザで、画面を見ていないときに新しいメールを知らせます"><span>新着の通知（この端末）</span>
           <button v-if="Notify.state.mapC(_ != &quot;on&quot;)" class="small" @click="Notify.enable()">有効にする（ブラウザが許可を求めます）</button>
           <button v-if="Notify.state.mapC(_ == &quot;on&quot;)" class="small" @click="Notify.disable()">無効にする</button></div>
+        <div class="field" title="受信トレイに新しいメールが届いたとき、画面を閉じていてもこの端末に知らせます"><span>プッシュ通知（この端末）</span>
+          <PushToggle /></div>
         <p class="muted small">キーボードのショートカットは <kbd>?</kbd> で一覧を出せます。</p>
         <div class="field"><span>画面の色（この端末に記憶します）</span>
           <div class="chips"><button v-for="o in Theme.options" :class='Theme.current.mapC(c => if (c == o._1) "chip active" else "chip")' @click="Theme.set(o._1)">{{ o._2 }}</button></div>

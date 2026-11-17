@@ -152,11 +152,14 @@ trait RouteSupport extends Http4sDsl[IO]:
       case None => err(Status.Unauthorized, "ログインしてください")
       case Some(s) =>
         val need = if scope.nonEmpty then scope else if safe.contains(req.method) then ApiScope.Read else ApiScope.Write
-        if s.isSession && !safe.contains(req.method) && req.headers.get(CIString("X-Skereru")).isEmpty then
-          err(Status.Forbidden, "不正なリクエストです（X-Skereru ヘッダーがありません）")
-        else if !s.can(need) then
-          err(Status.Forbidden, if need == ApiScope.Admin then "管理者だけが使えます" else s"このAPIキーには $need のスコープがありません")
-        else f(s)
+        // 操作したユーザーを、トレース（スパンの属性）とこの中のログに載せる
+        skereru.observe.Telemetry.withUser(s.user.id.toString, s.user.name) {
+          if s.isSession && !safe.contains(req.method) && req.headers.get(CIString("X-Skereru")).isEmpty then
+            err(Status.Forbidden, "不正なリクエストです（X-Skereru ヘッダーがありません）")
+          else if !s.can(need) then
+            err(Status.Forbidden, if need == ApiScope.Admin then "管理者だけが使えます" else s"このAPIキーには $need のスコープがありません")
+          else f(s)
+        }
     }
 
   protected def admin(req: Request[IO])(f: AuthSession => IO[Response[IO]]): IO[Response[IO]] = authed(req, ApiScope.Admin)(f)

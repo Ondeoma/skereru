@@ -13,6 +13,9 @@ val fs2V    = "3.14.0"
 val munitV  = "1.3.6"
 val awsV    = "2.30.38"
 val flywayV = "11.3.0"
+val otel4sV = "1.2.0"
+val otelV   = "1.68.0"
+val otelInstV = "2.33.1-alpha"
 
 lazy val commonTest = Seq(
   libraryDependencies ++= Seq(
@@ -62,7 +65,7 @@ lazy val core = (project in file("modules/core"))
   )
 
 lazy val db = (project in file("modules/db"))
-  .dependsOn(core)
+  .dependsOn(core, observe)
   .settings(commonTest)
   .settings(
     libraryDependencies ++= Seq(
@@ -99,13 +102,45 @@ lazy val storage = (project in file("modules/storage"))
     )
   )
 
+// 観測（OpenTelemetry: otel4s-oteljava）. ログ・メトリクス・トレースを OTLP で skorimako に送る
+lazy val observe = (project in file("modules/observe"))
+  .settings(commonTest)
+  .settings(
+    libraryDependencies ++= Seq(
+      "org.typelevel"   %% "otel4s-oteljava"                 % otel4sV,
+      "org.typelevel"   %% "otel4s-oteljava-context-storage" % otel4sV,
+      "org.typelevel"   %% "otel4s-instrumentation-metrics"  % otel4sV,
+      "io.opentelemetry" % "opentelemetry-exporter-otlp"     % otelV,
+      "io.opentelemetry.instrumentation" % "opentelemetry-logback-appender-1.0" % otelInstV,
+      "io.opentelemetry.instrumentation" % "opentelemetry-logback-mdc-1.0"      % otelInstV,
+      "io.opentelemetry.instrumentation" % "opentelemetry-runtime-telemetry"    % otelInstV,
+      "org.http4s"      %% "http4s-server"                   % http4sV,
+      "org.http4s"      %% "http4s-client"                   % http4sV,
+      "org.http4s"      %% "http4s-circe"                    % http4sV,
+      "org.http4s"      %% "http4s-dsl"                      % http4sV,
+      "ch.qos.logback"   % "logback-classic"                 % "1.5.18",
+      "org.tpolecat"    %% "doobie-core"                     % doobieV
+    )
+  )
+
+// プッシュ通知（PWA. Web Push の暗号化と VAPID は JDK の暗号の機能だけで実装）
+lazy val push = (project in file("modules/push"))
+  .dependsOn(db, observe)
+  .settings(commonTest)
+  .settings(
+    libraryDependencies ++= Seq(
+      "org.http4s" %% "http4s-client" % http4sV,
+      "io.circe"   %% "circe-core"    % circeV
+    )
+  )
+
 // メールのプロトコル（SMTP・IMAP・POP3）、配送、迷惑メールのフィルタ
 lazy val mail = (project in file("modules/mail"))
-  .dependsOn(core, db % "compile;test->test", auth, storage)
+  .dependsOn(core, db % "compile;test->test", auth, storage, observe)
   .settings(commonTest)
 
 lazy val api = (project in file("modules/api"))
-  .dependsOn(core, db % "compile;test->test", auth, storage, mail, shared.jvm)
+  .dependsOn(core, db % "compile;test->test", auth, storage, mail, shared.jvm, observe, push)
   .settings(commonTest)
   .settings(
     libraryDependencies ++= Seq(
@@ -129,5 +164,5 @@ lazy val app = (project in file("modules/app"))
   )
 
 lazy val root = (project in file("."))
-  .aggregate(shared.jvm, shared.js, web, core, db, auth, storage, mail, api, app)
+  .aggregate(shared.jvm, shared.js, web, core, db, auth, storage, observe, push, mail, api, app)
   .settings(name := "skereru", publish / skip := true)

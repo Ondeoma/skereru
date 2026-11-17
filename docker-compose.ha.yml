@@ -1,0 +1,88 @@
+name: skereru-ha  # 開発用 docker-compose.dev.yml（プロジェクト名 skereru）と衝突しないように
+# 3ノード構成の試験環境（本番の VM 3台構成を1台の Docker 上で再現する）。
+#   etcd(1台) + Patroni/PostgreSQL+PGroonga(3台) + skereru(3台) + HAProxy（HTTP と、メールの TCP を PROXY プロトコルで振り分け） + Mailpit
+# 使い方: scripts/ha-up.sh（入口: http://localhost:8196 、SMTP :2526、IMAPS :2994、HAProxy の統計: http://localhost:8405）
+# IdP なしで試せるよう DEV_LOGIN=true にしている（本番では OIDC_* を設定し DEV_LOGIN は付けない）。
+# 誰でも管理者でログインできるので、公開するポートはこの機械の中（127.0.0.1）からだけにしている。
+x-pg: &pg
+  build: { context: ., dockerfile: deploy/docker/patroni.Dockerfile }
+  image: skereru-patroni:dev
+  environment: &pgenv
+    PATRONI_SCOPE: skereru
+    PATRONI_ETCD3_HOSTS: etcd:2379
+    PATRONI_SUPERUSER_PASSWORD: postgres-secret
+    PATRONI_REPLICATION_PASSWORD: replicator-secret
+    SKERERU_DB_PASSWORD: skereru
+  depends_on: [etcd]
+x-app: &app
+  build: { context: ., dockerfile: deploy/docker/app.Dockerfile }
+  image: skereru-app:dev
+  environment: &appenv
+    DATABASE_URL: jdbc:postgresql://pg1:5432,pg2:5432,pg3:5432/skereru?targetServerType=primary&connectTimeout=3&tcpKeepAlive=true
+    DATABASE_USER: skereru
+    DATABASE_PASSWORD: skereru
+    DEV_LOGIN: "true"
+    APP_SECRET: ha-test-app-secret-0123456789
+    PUBLIC_URL: http://localhost:8196
+    MAIL_HOSTNAME: mail.ha.test
+    ADMIN_GROUPS: skereru-admins
+    SMTP_PORT: "2525"
+    SUBMISSION_PORT: "2587"
+    SMTPS_PORT: "2465"
+    IMAP_PORT: "2143"
+    IMAPS_PORT: "2993"
+    POP3_PORT: "2110"
+    POP3S_PORT: "2995"
+    # HAProxy からの接続は PROXY プロトコルで本当の接続元を受け取る
+    PROXY_PROTOCOL_FROM: 10.89.80.10/32
+    TRUSTED_PROXIES: 10.89.80.10/32
+    # コンテナの中では、HAProxy から受けるためにすべてのアドレスで待ち受ける
+    HTTP_BIND: 0.0.0.0
+    MAIL_BIND: 0.0.0.0
+    RELAY_HOST: mail
+    RELAY_PORT: "1025"
+    RELAY_TLS: none
+  depends_on: [pg1, pg2, pg3]
+  restart: unless-stopped
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.17
+    command: >
+      etcd --name etcd --data-dir /etcd-data
+      --listen-client-urls http://0.0.0.0:2379 --advertise-client-urls http://etcd:2379
+      --listen-peer-urls http://0.0.0.0:2380 --initial-advertise-peer-urls http://etcd:2380
+      --initial-cluster etcd=http://etcd:2380 --enable-v2=false
+  pg1:
+    <<: *pg
+    hostname: pg1
+    environment: { <<: *pgenv, PATRONI_NAME: pg1, PATRONI_RESTAPI_CONNECT_ADDRESS: "pg1:8008", PATRONI_POSTGRESQL_CONNECT_ADDRESS: "pg1:5432" }
+  pg2:
+    <<: *pg
+    hostname: pg2
+    environment: { <<: *pgenv, PATRONI_NAME: pg2, PATRONI_RESTAPI_CONNECT_ADDRESS: "pg2:8008", PATRONI_POSTGRESQL_CONNECT_ADDRESS: "pg2:5432" }
+  pg3:
+    <<: *pg
+    hostname: pg3
+    environment: { <<: *pgenv, PATRONI_NAME: pg3, PATRONI_RESTAPI_CONNECT_ADDRESS: "pg3:8008", PATRONI_POSTGRESQL_CONNECT_ADDRESS: "pg3:5432" }
+  app1:
+    <<: *app
+    environment: { <<: *appenv, NODE_ID: app1 }
+  app2:
+    <<: *app
+    environment: { <<: *appenv, NODE_ID: app2 }
+  app3:
+    <<: *app
+    environment: { <<: *appenv, NODE_ID: app3 }
+  haproxy:
+    image: haproxy:3.0-alpine
+    volumes: ["./deploy/docker/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro"]
+    networks: { default: { ipv4_address: 10.89.80.10 } }   # PROXY プロトコルを受け付けるのはこの IP だけ
+    ports: ["127.0.0.1:8196:8080", "127.0.0.1:8405:8404", "127.0.0.1:2526:2525", "127.0.0.1:2588:2587", "127.0.0.1:2466:2465", "127.0.0.1:2144:2143", "127.0.0.1:2994:2993", "127.0.0.1:2111:2110", "127.0.0.1:2996:2995"]
+    depends_on: [app1, app2, app3]
+  mail:
+    image: axllent/mailpit:v1.27
+    ports: ["127.0.0.1:8033:8025"]
+networks:
+  default:
+    ipam:
+      config: [{ subnet: 10.89.80.0/24 }]

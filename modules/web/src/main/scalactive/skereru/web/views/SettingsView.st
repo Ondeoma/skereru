@@ -6,9 +6,11 @@ import org.scalajs.dom
 import skereru.shared.*
 
 import java.util.UUID
+import scala.concurrent.{Future, Promise}
 import scala.scalajs.concurrent.JSExecutionContext.Implicits.queue
+import scala.scalajs.js
 
-// 設定: 一般・自動返信・振り分け・迷惑メール・アドレス・メールソフト・APIキー
+// 設定: 一般（アイコン・名前・表示など）・自動返信・振り分け・迷惑メール・アドレス・メールソフト・APIキー
 case class State(tab: RV[String] = RV("general"),
                  name: RV[String] = RV(""),
                  signature: RV[String] = RV(""),
@@ -84,6 +86,46 @@ def save(s: State): Unit = {
     s.undoSecs.v.toIntOption.getOrElse(10))
   Store.report(Api.put[MailSettingsDto]("/api/me/settings", x.asJson)) { saved => Store.settings := saved; Store.toast("保存しました"); Store.changed() }
 }
+
+// ---------------------------------------------------------------- アイコン
+
+val AvatarPx = 256
+
+def myName = Store.me.mapC(_.map(_.name).getOrElse(""))
+def myPicture = Store.me.mapC(_.flatMap(_.avatarUrl))
+/** このサービスに保存したアイコンがあるか（なければ IdP の画像か、名前の1文字目）. */
+def uploaded = Store.me.mapC(_.exists(_.avatarUrl.exists(_.startsWith("/api/users/"))))
+
+/** 画像の中央を正方形に切り抜き、256×256 にする（WebP. 対応していないブラウザでは PNG）. */
+def square(file: dom.File): Future[dom.Blob] = {
+  js.Dynamic.global.createImageBitmap(file).asInstanceOf[js.Promise[js.Dynamic]].toFuture.flatMap { img =>
+    val (w, h) = (img.width.asInstanceOf[Double], img.height.asInstanceOf[Double])
+    val side = math.min(w, h)
+    val canvas = dom.document.createElement("canvas").asInstanceOf[dom.HTMLCanvasElement]
+    canvas.width = AvatarPx; canvas.height = AvatarPx
+    val ctx = canvas.getContext("2d").asInstanceOf[js.Dynamic]
+    ctx.imageSmoothingQuality = "high"
+    ctx.drawImage(img, (w - side) / 2, (h - side) / 2, side, side, 0, 0, AvatarPx, AvatarPx)
+    val p = Promise[dom.Blob]()
+    canvas.asInstanceOf[js.Dynamic].toBlob((b: dom.Blob) =>
+      if (b == null) p.failure(new Exception("画像を作れませんでした")) else p.success(b), "image/webp", 0.9)
+    p.future
+  }
+}
+
+def pickAvatar(e: dom.Event): Unit = {
+  val input = e.target.asInstanceOf[dom.HTMLInputElement]
+  Option(input.files).filter(_.length > 0).map(_(0)).foreach { f =>
+    input.value = "" // 同じファイルを選び直せるように
+    if (!f.`type`.startsWith("image/")) Store.toast("画像のファイルを選んでください", error = true)
+    else Store.report(square(f).flatMap(b => Api.putBlob("/api/me/avatar", b))) { _ => Store.toast("アイコンを保存しました"); Store.reloadMe() }
+  }
+}
+
+def removeAvatar(): Unit =
+  Dialog.confirm("保存したアイコンを消しますか？（ログインの仕組みから受け取った画像か、名前の1文字目の表示に戻ります）", "消す") {
+    Store.report(Api.delete("/api/me/avatar")) { _ => Store.toast("アイコンを消しました"); Store.reloadMe() }
+  }
 
 def saveName(s: State): Unit =
   Store.report(Api.patchUnit("/api/me", UpdateMeReq(Some(s.name.v), None).asJson)) { _ => Store.toast("保存しました"); Store.reloadMe() }
@@ -271,6 +313,15 @@ def port(f: ClientConfigDto => Option[Int]) = cfg.mapC(_.flatMap(f).map(_.toStri
     </nav>
 
     <template v-if="on(s, &quot;general&quot;)">
+      <section class="panel">
+        <h2>アイコン</h2>
+        <div class="row avatar-row">
+          <Avatar :name="myName.v" :picture="myPicture.v" :size="64" />
+          <label class="btn">画像を選ぶ<input type="file" accept="image/png,image/jpeg,image/gif,image/webp" class="hidden-file" @change="pickAvatar(event)"></label>
+          <button v-if="uploaded" type="button" class="ghost" @click="removeAvatar()">消す</button>
+        </div>
+        <p class="muted small">中央を正方形に切り抜いて保存します。保存しないときは、ログインの仕組み（sruru など）に登録したアイコンを使います。</p>
+      </section>
       <section class="panel">
         <h2>名前</h2>
         <div class="row"><input type="text" v-model="s.name" class="grow"><button class="primary" @click="saveName(s)">保存</button></div>
@@ -557,6 +608,8 @@ def port(f: ClientConfigDto => Option[Int]) = cfg.mapC(_.flatMap(f).map(_.toStri
 </template>
 
 <style scoped>
+.avatar-row { align-items: center; gap: .8rem; }
+.hidden-file { display: none; }
 .tabs { flex-wrap: nowrap; }
 .rule { display: flex; align-items: center; gap: .5rem; padding: .6rem 0; border-bottom: 1px solid var(--line); }
 .cond { margin-bottom: .4rem; }

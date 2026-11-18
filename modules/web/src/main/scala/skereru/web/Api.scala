@@ -65,6 +65,10 @@ object Api {
   def postBytes[A: Decoder](url: String, bytes: js.typedarray.Uint8Array): Future[A] =
     raw(dom.HttpMethod.POST, url, Some(("application/octet-stream", bytes.asInstanceOf[dom.BodyInit]))).map(as[A])
 
+  /** 画像などをそのまま（Content-Type はファイルの種類）PUT で送る. */
+  def putBlob(url: String, data: dom.Blob): Future[Unit] =
+    raw(dom.HttpMethod.PUT, url, Some((data.`type`, data))).map(_ => ())
+
   def enc(s: String): String = js.URIUtils.encodeURIComponent(s)
 
   def query(params: (String, Option[String])*): String = {

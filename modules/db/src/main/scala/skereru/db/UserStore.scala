@@ -16,7 +16,7 @@ import java.util.UUID
 /** ユーザー・グループ・セッション・ログイン途中の状態・アプリパスワード・APIキー・総当たり対策・監査ログ・宛先の候補。 */
 final class UserStore(xa: Transactor[IO]) extends TxStore(xa):
 
-  private val cols = fr"u.id, u.oidc_sub, u.name, u.email, u.avatar_url, u.is_admin, u.disabled, u.timezone, u.quota_bytes, u.used_bytes, u.created_at, u.last_login_at"
+  private val cols = fr"u.id, u.oidc_sub, u.name, u.email," ++ AvatarStore.url("u") ++ fr", u.is_admin, u.disabled, u.timezone, u.quota_bytes, u.used_bytes, u.created_at, u.last_login_at"
 
   // ---------------------------------------------------------------- ユーザー
 

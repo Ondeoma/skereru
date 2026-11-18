@@ -248,6 +248,7 @@ object Main extends IOApp.Simple:
           healthRoutes(xa, cfg.nodeId) <+>
             new AuthRoutes(oidc, users, adminSvc, sess, cfg.api, cfg.mail).routes <+>
             new MeRoutes(users, domains, mail, queue, sess, cfg.mail).routes <+>
+            new AvatarRoutes(new AvatarStore(xa), sess).routes <+>
             new MailRoutes(mailSvc, mail, schedules, sess, cfg.api, changes).routes <+>
             new ImportRoutes(importer, imports, mail, blobs, sess).routes <+>
             new InviteRoutes(invites, sess).routes <+>
@@ -341,10 +342,13 @@ object Main extends IOApp.Simple:
 
 /** すべての応答に付けるセキュリティのヘッダー（ルートが付けたものは上書きしない）。 */
 object SecurityHeaders:
+  // IdP が http（開発環境など）のときは、そのアイコンの画像も許す（https の画像はもとから許している）
+  private val idpImg: String = sys.env.get("OIDC_ISSUER").flatMap(u => scala.util.Try(java.net.URI.create(u)).toOption)
+    .filter(u => u.getScheme == "http" && u.getAuthority != null).fold("")(u => s" http://${u.getAuthority}")
   // 画面のブラウザの観測（skorimako の RUM）の設定があれば、その SDK の読み込みと送信を許す
   private val rum = RumRoutes.origin.fold("")(" " + _)
   private val csp =
-    s"default-src 'self'; script-src 'self'$rum; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; " +
+    s"default-src 'self'; script-src 'self'$rum; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:$idpImg; font-src 'self' data:; " +
       s"connect-src 'self'$rum; frame-src 'self'; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self'"
 
   def apply(cfg: ApiConfig)(app: HttpApp[IO]): HttpApp[IO] = cats.data.Kleisli { req =>

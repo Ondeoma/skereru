@@ -82,11 +82,10 @@ def primary = Store.me.mapC(_.flatMap(_.addresses.find(_.isPrimary)).map(_.addre
 def loggedIn = Store.me.mapC(_.isDefined)
 def usage = Store.me.mapC(_.map(m => s"${Fmt.bytes(m.usedBytes)} / ${Fmt.bytes(m.quotaBytes)}").getOrElse(""))
 def usageBar = Store.me.mapC(_.map(m => s"width: ${math.min(100.0, m.usedBytes * 100.0 / math.max(1L, m.quotaBytes))}%").getOrElse("width: 0"))
-def avatarStyle = Store.me.mapC(_.map(m => s"background: hsl(${Fmt.hue(m.name)} 55% 45%)").getOrElse(""))
+def picture = Store.me.mapC(_.flatMap(_.avatarUrl))
 /** アカウントのボタンのヒント. */
 def meTip = primary.mapC(p => s"ログイン中のアカウント: $p（メニューを開く）")
 def hasPrimary = primary.mapC(_.nonEmpty)
-def initial = Store.me.mapC(_.map(m => Fmt.initials(m.name)).getOrElse(""))
 def navClass = Store.nav.mapC(o => if (o) "side open" else "side")
 
 def newFolder(): Unit = Dialog.prompt("新しいメールボックスの名前（階層は / で区切ります。例: 仕事/請求書）", "", "作成") { n =>
@@ -110,7 +109,7 @@ def go(b: MailboxDto): Unit = { Store.nav := false; Router.go("/mail/" + Store.b
     <div v-if="loggedIn" class="me">
       <!-- ログイン中のメインのアドレスを、ヘッダーで常に見えるようにする（どのアカウントで操作しているか分かるように） -->
       <button class="ghost me-btn" @click="s.menu := !s.menu.v" :title="meTip">
-        <span v-if="hasPrimary" class="me-addr">{{ primary }}</span><span class="av" :style="avatarStyle">{{ initial }}</span>
+        <span v-if="hasPrimary" class="me-addr">{{ primary }}</span><Avatar :name="userName.v" :picture="picture.v" :size="32" />
       </button>
       <div v-if="s.menu" class="menu" @click="s.menu := false">
         <div class="who"><b>{{ userName }}</b><div class="muted small">{{ primary }}</div></div>
@@ -191,7 +190,6 @@ kbd { font-family: ui-monospace, monospace; font-size: .8rem; border: 1px solid 
 .icon { font-size: 1.15rem; padding: .25rem .45rem; border-radius: 50%; color: var(--fg); }
 .icon:hover { background: var(--hover); text-decoration: none; }
 .me { position: relative; }
-.av { width: 32px; height: 32px; border-radius: 50%; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; }
 .me-btn { padding: 2px 2px 2px .8rem; border-radius: 999px; display: inline-flex; align-items: center; gap: .5rem; border: 1px solid var(--line); }
 .me-btn:hover { background: var(--hover); }
 .me-addr { font-size: .86rem; font-weight: 600; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

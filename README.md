@@ -101,7 +101,7 @@ java -cp 'dist/lib/*' skereru.app.Main
 |---|---|
 | `DATABASE_URL` / `DATABASE_USER` / `DATABASE_PASSWORD` | PostgreSQL（PGroonga が必要）。冗長構成では3台を並べて `targetServerType=primary` |
 | `PUBLIC_URL` | Web の公開 URL（`https://` なら Cookie は `__Host-` 付き・Secure、HSTS を付ける） |
-| `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | OIDC。Redirect URI は `${PUBLIC_URL}/auth/callback` |
+| `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | OIDC。Redirect URI は `${PUBLIC_URL}/auth/callback`。ログアウトでは IdP からもログアウトし、`${PUBLIC_URL}/` に戻る（sruru 以外の IdP では、この戻り先も登録する） |
 | `OIDC_GROUPS_CLAIM` / `ADMIN_GROUPS` | 所属グループのクレーム名（既定 `groups`）と、管理者にするグループ。グループはログインのたびに IdP から同期する |
 | `ADMIN_SESSION_HOURS` | 管理者のセッションの長さ（既定 8 時間。一般のユーザーは 14 日）。IdP で管理者のグループから外したら、遅くともこの時間で権限がなくなる。APIキーでのグループによる管理者の権限は、最後のログインから 7 日まで |
 | `OIDC_TRUST_EMAIL` | `email_verified` を返さない IdP の email を確かめたものとして扱う（既定 false）。利用者が自分で email を変えられる IdP（マルチテナントの Entra ID など）では、ほかの人のアカウントを乗っ取れるので有効にしない |

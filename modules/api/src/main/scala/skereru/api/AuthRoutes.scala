@@ -1,6 +1,7 @@
 package skereru.api
 
 import cats.effect.*
+import cats.syntax.all.*
 import io.circe.Json
 import io.circe.syntax.*
 import org.http4s.*
@@ -34,8 +35,8 @@ final class AuthRoutes(oidc: Option[OidcClient], users: UserStore, adminSvc: Adm
     req.cookies.find(_.name == cfg.loginCookieName).exists(c =>
       java.security.MessageDigest.isEqual(c.content.getBytes("UTF-8"), state.getBytes("UTF-8")))
 
-  private def loggedIn(u: User, req: Request[IO]): IO[ResponseCookie] =
-    sessions.issue(u, req).flatTap(_ => users.audit(Some(u.id), "web", "auth.login", None, Some(ReqInfo.clientIp(req))) *> skereru.observe.Metrics.count("skereru.logins", "via" -> "web"))
+  private def loggedIn(u: User, req: Request[IO], idToken: Option[String] = None): IO[ResponseCookie] =
+    sessions.issue(u, req, idToken).flatTap(_ => users.audit(Some(u.id), "web", "auth.login", None, Some(ReqInfo.clientIp(req))) *> skereru.observe.Metrics.count("skereru.logins", "via" -> "web"))
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     case req @ GET -> Root / "auth" / "login" =>
@@ -66,7 +67,7 @@ final class AuthRoutes(oidc: Option[OidcClient], users: UserStore, adminSvc: Adm
                     case None => err(Status.Forbidden, "このサーバーのユーザーとして登録されていません。管理者に連絡してください")
                     case Some(u) if u.disabled => err(Status.Forbidden, "このユーザーは無効にされています")
                     case Some(u) =>
-                      users.syncGroups(u.id, id.groups) *> adminSvc.autoProvision(u) *> loggedIn(u, req)
+                      users.syncGroups(u.id, id.groups) *> adminSvc.autoProvision(u) *> loggedIn(u, req, id.idToken)
                         .flatMap(c => redirect(back, Some(c)).map(_.addCookie(loginCookie("", 0))))
                   }
               }
@@ -77,8 +78,13 @@ final class AuthRoutes(oidc: Option[OidcClient], users: UserStore, adminSvc: Adm
     // ほかのサイトからログアウトさせられないよう、ほかの更新と同じく X-Skereru ヘッダーを求める
     case req @ POST -> Root / "auth" / "logout" if !req.headers.get(org.typelevel.ci.CIString("X-Skereru")).isDefined =>
       err(Status.Forbidden, "X-Skereru ヘッダーが必要です")
+    // ログアウト: セッションを消し、IdP にもログアウトを頼む（IdP のログインが残っていると、すぐにログインし直してしまうため）
     case req @ POST -> Root / "auth" / "logout" =>
-      sessions.revoke(req).flatMap(c => Ok(Json.obj("redirect" -> "/".asJson)).map(_.addCookie(c)))
+      sessions.revoke(req).flatMap { (idToken, c) =>
+        oidc.flatTraverse(_.logoutUri(idToken, s"${cfg.publicUrl.stripSuffix("/")}/")).flatMap { idp =>
+          Ok(Json.obj("redirect" -> idp.fold("/")(_.renderString).asJson)).map(_.addCookie(c))
+        }
+      }
 
     // 開発用: 名前とアドレスだけでログインする（DEV_LOGIN=true で OIDC がないときだけ）
     case req @ POST -> Root / "auth" / "dev-login" if cfg.devLogin && oidc.isEmpty =>

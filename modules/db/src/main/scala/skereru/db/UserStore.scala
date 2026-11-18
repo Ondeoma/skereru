@@ -109,8 +109,8 @@ final class UserStore(xa: Transactor[IO]) extends TxStore(xa):
 
   // ---------------------------------------------------------------- セッション
 
-  def createSession(hash: Array[Byte], userId: UUID, expires: Instant, ip: Option[String], ua: Option[String]): IO[Unit] = tx(
-    sql"insert into session (token_hash, user_id, expires_at, ip, user_agent) values ($hash, $userId, $expires, $ip, ${ua.map(_.take(300))})".update.run.void
+  def createSession(hash: Array[Byte], userId: UUID, expires: Instant, ip: Option[String], ua: Option[String], idToken: Option[String] = None): IO[Unit] = tx(
+    sql"insert into session (token_hash, user_id, expires_at, ip, user_agent, id_token) values ($hash, $userId, $expires, $ip, ${ua.map(_.take(300))}, $idToken)".update.run.void
   )
 
   /** 有効なセッションのユーザー（無効にされたユーザーは除く）。 */
@@ -119,7 +119,9 @@ final class UserStore(xa: Transactor[IO]) extends TxStore(xa):
       .query[User].option.flatMap(_.traverse(u => groups(u.id).map(u -> _)))
   )
 
-  def deleteSession(hash: Array[Byte]): IO[Unit] = tx(sql"delete from session where token_hash = $hash".update.run.void)
+  /** セッションを消し、IdP からログアウトするための id_token を返す. */
+  def deleteSession(hash: Array[Byte]): IO[Option[String]] =
+    tx(sql"delete from session where token_hash = $hash returning id_token".query[Option[String]].option.map(_.flatten))
   def deleteSessions(userId: UUID): IO[Unit] = tx(sql"delete from session where user_id = $userId".update.run.void)
 
   def saveLoginState(state: String, verifier: String, nonce: String, returnTo: String): IO[Unit] = tx(

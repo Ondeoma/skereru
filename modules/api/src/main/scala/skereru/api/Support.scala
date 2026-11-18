@@ -93,18 +93,19 @@ final class SessionAuth(users: UserStore, cfg: ApiConfig):
     req.headers.get[Authorization].collect { case Authorization(Credentials.Token(AuthScheme.Bearer, t)) => t }.filter(ApiKeys.looksLike)
 
   /** セッションを発行する。管理者のセッションは短くする（IdP での権限の取り消しを早く反映するため）。 */
-  def issue(user: User, req: Request[IO]): IO[ResponseCookie] =
+  def issue(user: User, req: Request[IO], idToken: Option[String] = None): IO[ResponseCookie] =
     val token = Crypto.randomToken()
     users.groupsIO(user.id).flatMap { gs =>
       val ttl = if isAdmin(user, gs) then cfg.adminSessionTtl else cfg.sessionTtl
       users.createSession(Crypto.sha256(token), user.id, Instant.now().plusSeconds(ttl.toSeconds), Some(ReqInfo.clientIp(req)),
-        req.headers.get(CIString("User-Agent")).map(_.head.value)).as(cookie(token, ttl.toSeconds))
+        req.headers.get(CIString("User-Agent")).map(_.head.value), idToken).as(cookie(token, ttl.toSeconds))
     }
 
-  def revoke(req: Request[IO]): IO[ResponseCookie] =
+  /** セッションを消す. IdP からもログアウトするための id_token（OIDC でログインしていたとき）と、Cookie を消す指示を返す. */
+  def revoke(req: Request[IO]): IO[(Option[String], ResponseCookie)] =
     req.cookies.find(_.name == cfg.cookieName) match
-      case Some(c) => users.deleteSession(Crypto.sha256(c.content)).as(cookie("", 0))
-      case None    => IO.pure(cookie("", 0))
+      case Some(c) => users.deleteSession(Crypto.sha256(c.content)).map(_ -> cookie("", 0))
+      case None    => IO.pure(None -> cookie("", 0))
 
   private def cookie(value: String, maxAge: Long): ResponseCookie =
     ResponseCookie(cfg.cookieName, value, maxAge = Some(maxAge), path = Some("/"), httpOnly = true, secure = cfg.cookieSecure, sameSite = Some(SameSite.Lax))

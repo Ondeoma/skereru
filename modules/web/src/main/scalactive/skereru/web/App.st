@@ -59,7 +59,7 @@ def search(s: State): Unit = {
   Router.go(if (q.isEmpty) "/mail/inbox" else "/search?q=" + Api.enc(q))
 }
 
-def logout(): Unit = Api.logout().foreach(_ => dom.window.location.href = "/")
+def logout(): Unit = Api.logout().onComplete(r => dom.window.location.href = r.getOrElse("/"))
 
 /** 表示中のメールボックスの URL の名前（/mail/inbox → inbox）. */
 def currentBox(href: String): String = {

@@ -1,77 +1,14 @@
 package skereru.api
 
-import cats.effect.*
-import cats.syntax.all.*
 import io.circe.Json
 import io.circe.syntax.*
-import munit.CatsEffectSuite
 import org.http4s.*
-import org.http4s.circe.CirceEntityCodec.*
-import org.http4s.headers.Authorization
-import skereru.auth.SecretBox
-import skereru.db.*
-import skereru.mail.*
 import skereru.shared.*
-import skereru.storage.*
 
 import java.util.UUID
 
-/** エージェント専用アカウント（管理者が作り、APIキーを発行する）の API の試験。TEST_DATABASE_URL がなければ飛ばす（例: jdbc:postgresql://localhost:54370/skereru_test）。 */
-class AgentAccountSpec extends CatsEffectSuite:
-
-  private val dbCfg: Option[DbConfig] = sys.env.get("TEST_DATABASE_URL").map(url =>
-    DbConfig(url, sys.env.getOrElse("TEST_DATABASE_USER", "skereru"), sys.env.getOrElse("TEST_DATABASE_PASSWORD", "skereru")))
-
-  final case class Env(app: HttpApp[IO], users: UserStore)
-
-  private val envFixture = ResourceSuiteLocalFixture("env",
-    dbCfg.fold(Resource.eval(IO.raiseError[Env](new RuntimeException("no db")))) { c =>
-      for
-        _  <- Resource.eval(Database.migrate(c))
-        xa <- Database.transactor(c)
-      yield
-        val users = new UserStore(xa); val domains = new DomainStore(xa); val mail = new MailStore(xa); val queue = new QueueStore(xa)
-        val secret = "test-app-secret-0123456789"
-        val mcfg = MailConfig(hostname = "mx.test.local", dnsServers = Nil)
-        val cfg = ApiConfig(adminGroups = Set.empty, cookieSecure = false, publicUrl = "http://localhost", devLogin = true)
-        val log = (_: String) => ()
-        val box = new SecretBox(secret)
-        val dns = new JndiDns(Nil, 1000)
-        val blobs = new PgBlobs(mail, new BlobCrypto(secret, true), new BlobCache(1024 * 1024))
-        val delivery = new Delivery(mail, domains, users, queue, blobs, new SpamFilter(dns, queue, mcfg, log), new Signer(domains, box), mcfg, log, _ => IO.unit)
-        val sess = new SessionAuth(users, cfg)
-        val adminSvc = new AdminService(xa, users, domains, mail, delivery, box, dns, mcfg, cfg)
-        val rest = new AuthRoutes(None, users, adminSvc, sess, cfg, mcfg).routes <+>
-          new MeRoutes(users, domains, mail, queue, sess, mcfg).routes <+>
-          new AdminRoutes(adminSvc, users, domains, mail, queue, delivery, new DmarcStore(xa), sess).routes
-        Env((rest <+> new McpRoutes(rest, sess, cfg.publicUrl, cfg.version).routes).orNotFound, users)
-    })
-
-  override def munitFixtures = if dbCfg.isDefined then List(envFixture) else Nil
-
-  private def withEnv(name: String)(body: Env => IO[Unit]): Unit =
-    test(name)(if dbCfg.isEmpty then IO(assume(false, "TEST_DATABASE_URL が未設定")) else body(envFixture()))
-
-  /** 認証の手段（Cookie のセッションか APIキー）。 */
-  private enum Who:
-    case Cookie(name: String, value: String)
-    case Key(key: String)
-
-  private def call(e: Env, who: Who, method: Method, path: String, body: Option[Json] = None): IO[(Status, Json)] =
-    val r0 = Request[IO](method, Uri.unsafeFromString(path))
-    val r1 = who match
-      case Who.Cookie(n, v) => r0.addCookie(n, v).putHeaders("X-Skereru" -> "1")
-      case Who.Key(k)       => r0.putHeaders(Authorization(Credentials.Token(AuthScheme.Bearer, k)))
-    val req = body.fold(r1)(r1.withEntity(_))
-    e.app.run(req).flatMap(res => res.bodyText.compile.string.map(s => res.status -> io.circe.parser.parse(s).getOrElse(Json.Null)))
-
-  private def devLogin(e: Env, name: String, admin: Boolean): IO[Who] =
-    val req = Request[IO](Method.POST, Uri.unsafeFromString("/auth/dev-login")).putHeaders("X-Skereru" -> "1")
-      .withEntity(Json.obj("name" -> name.asJson, "admin" -> admin.asJson))
-    e.app.run(req).map { res =>
-      val c = res.cookies.find(_.name == "skereru_session").getOrElse(fail("セッションの Cookie がありません"))
-      Who.Cookie(c.name, c.content)
-    }
+/** エージェント専用アカウント（管理者が作り、APIキーを発行する）の API の試験。TEST_DATABASE_URL がなければ飛ばす（ApiTestEnv）。 */
+class AgentAccountSpec extends ApiTestEnv:
 
   withEnv("管理者がエージェント専用アカウントを作り、APIキーで MCP・REST を使える") { e =>
     val tag = UUID.randomUUID().toString.take(8)

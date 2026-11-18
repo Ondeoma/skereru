@@ -36,6 +36,7 @@ case class State(tab: RV[String] = RV("general"),
                  scopes: RV[List[String]] = RV(List("read")),
                  days: RV[String] = RV("90"),
                  createdKey: RV[Option[String]] = RV(None),
+                 grants: RV[List[OAuthGrantDto]] = RV(Nil),
                  imports: RV[List[ImportJobDto]] = RV(Nil),
                  imHost: RV[String] = RV("imap.gmail.com"),
                  imPort: RV[String] = RV("993"),
@@ -197,7 +198,14 @@ def deletePw(s: State, p: AppPasswordDto): Unit = Dialog.confirm(s"アプリパ�
 def pwText(s: State) = s.createdPw.mapC(_.map(_.password).getOrElse(""))
 def pwUser(s: State) = s.createdPw.mapC(_.map(_.username).getOrElse(""))
 
-def loadKeys(s: State): Unit = Api.get[List[ApiKeyDto]]("/api/me/api-keys").foreach(s.keys := _)
+def loadKeys(s: State): Unit = {
+  Api.get[List[ApiKeyDto]]("/api/me/api-keys").foreach(s.keys := _)
+  Api.get[List[OAuthGrantDto]]("/api/me/oauth-grants").foreach(s.grants := _)
+}
+def revokeGrant(s: State, g: OAuthGrantDto): Unit = Dialog.confirm(s"${g.name} との連携を取り消しますか？${g.name} は、あなたの権限で skereru を使えなくなります。", "取り消す") {
+  Store.report(Api.delete(s"/api/me/oauth-grants/${js.URIUtils.encodeURIComponent(g.clientId)}"))(_ => loadKeys(s))
+}
+def grantScopes(g: OAuthGrantDto): String = g.scopes.map(sc => if (sc == ApiScope.Send) "メールの送信（send）" else s"${ApiScope.label(sc)}（$sc）").mkString("・")
 def createKey(s: State): Unit =
   Store.report(Api.post[CreatedApiKeyDto]("/api/me/api-keys", CreateApiKeyReq(s.keyName.v, s.scopes.v, s.days.v.toIntOption).asJson)) { r =>
     s.createdKey := Some(r.key); s.keyName := ""; loadKeys(s)
@@ -602,6 +610,22 @@ def port(f: ClientConfigDto => Option[Int]) = cfg.mapC(_.flatMap(f).map(_.toStri
           </tbody>
         </table>
         <p class="small muted">MCP: <code>{{ origin }}/mcp</code>（Streamable HTTP）。REST API の一覧: <a href="/api/endpoints" target="_blank">/api/endpoints</a></p>
+      </section>
+      <section class="panel">
+        <h2>連携しているサービス</h2>
+        <p class="muted small">あなたが許可して、あなたの権限で skereru を使っているサービス（skakapo など）です。取り消すと、そのサービスはすぐに使えなくなります。</p>
+        <table class="list">
+          <thead><tr><th>サービス</th><th>できること</th><th>許可した日時</th><th>最終使用</th><th></th></tr></thead>
+          <tbody>
+            <tr v-for="g in s.grants" :key="g.clientId">
+              <td>{{ g.name }}</td><td class="small">{{ grantScopes(g) }}</td>
+              <td class="small">{{ Fmt.dateTime(g.createdAt) }}</td>
+              <td class="small">{{ g.lastUsedAt.map(Fmt.ago).getOrElse("未使用") }}</td>
+              <td><button class="danger small" @click="revokeGrant(s, g)">取り消す</button></td>
+            </tr>
+            <tr v-if="s.grants.mapC(_.isEmpty)"><td colspan="5" class="muted">連携しているサービスはありません</td></tr>
+          </tbody>
+        </table>
       </section>
     </template>
   </div>

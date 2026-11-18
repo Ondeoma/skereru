@@ -30,13 +30,25 @@ final case class ApiConfig(
     timezone: String = "Asia/Tokyo",
     version: String = "0.1.0",
     /** IdP でログインした人を、自動で作るか（メールアドレスのドメインが auto_provision のときだけアドレスも作る）。 */
-    autoCreateUsers: Boolean = true
+    autoCreateUsers: Boolean = true,
+    /** 認可を求める外部のサービス（OAUTH_CLIENTS）。 */
+    oauthClients: List[OAuthClient] = Nil
 ):
   /** https なら __Host- の付いた Cookie（Secure・Path=/・Domain なしが強制される）。 */
   val cookieName: String = if cookieSecure then "__Host-skereru_session" else "skereru_session"
   /** ログインの途中（IdP へ行って戻るまで）の state を入れる Cookie。戻ってきたブラウザが、ログインを始めたブラウザと同じか確かめる。 */
   val loginCookieName: String = if cookieSecure then "__Host-skereru_login" else "skereru_login"
   val publicOrigin: String = scala.util.Try { val u = java.net.URI.create(publicUrl); s"${u.getScheme}://${u.getAuthority}" }.getOrElse(publicUrl)
+
+/**
+ * 認可を求める外部のサービス（OAUTH_CLIENTS で登録する）。redirectUri は完全一致で照合する。
+ * scopes はそのクライアントが求めてよいスコープ（read・write・send. 既定は read だけ. admin は付けられない）。
+ */
+final case class OAuthClient(id: String, secret: String, redirectUri: String, name: String, scopes: List[String] = List(ApiScope.Read))
+
+object OAuthClient:
+  /** OAuth で許せるスコープ（メールの送信は影響が大きいので、send は write と別にする）。 */
+  val Scopes: List[String] = List(ApiScope.Read, ApiScope.Write, ApiScope.Send)
 
 /** 処理の失敗（HTTP の応答に変換する）。 */
 enum Fail:

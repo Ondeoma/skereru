@@ -7,3 +7,5 @@ export MAIL_HOSTNAME=localhost
 export SMTP_PORT=2525 SUBMISSION_PORT=2587 SMTPS_PORT=2465 IMAP_PORT=2143 IMAPS_PORT=2993 POP3_PORT=2110 POP3S_PORT=2995
 # 外への送信はすべて Mailpit（http://localhost:8032）に送る
 export RELAY_HOST=localhost RELAY_PORT=1032 RELAY_TLS=none
+# OAuth の提供側: skakapo が利用者の権限で使う（送信は send のスコープ）
+export OAUTH_CLIENTS='[{"id":"skakapo","secret":"skakapo-dev-secret-0123456789","redirectUri":"http://localhost:5199/api/connections/callback","name":"skakapo","scopes":["read","write","send"]}]'

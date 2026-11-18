@@ -184,7 +184,7 @@ final class UserStore(xa: Transactor[IO]) extends TxStore(xa):
   // ---------------------------------------------------------------- APIキー
 
   def apiKeys(userId: UUID): IO[List[ApiKeyDto]] = tx(
-    sql"select id, name, prefix, scopes, created_at, expires_at, last_used_at from api_key where user_id = $userId order by created_at desc"
+    sql"select id, name, prefix, scopes, created_at, expires_at, last_used_at from api_key where user_id = $userId and oauth_grant is null order by created_at desc"
       .query[ApiKeyDto].to[List]
   )
 
@@ -193,7 +193,7 @@ final class UserStore(xa: Transactor[IO]) extends TxStore(xa):
           returning id, name, prefix, scopes, created_at, expires_at, last_used_at""".query[ApiKeyDto].unique
   )
 
-  def deleteApiKey(userId: UUID, id: UUID): IO[Int] = tx(sql"delete from api_key where id = $id and user_id = $userId".update.run)
+  def deleteApiKey(userId: UUID, id: UUID): IO[Int] = tx(sql"delete from api_key where id = $id and user_id = $userId and oauth_grant is null".update.run)
 
   def findApiKey(hash: Array[Byte], now: Instant): IO[Option[(User, List[String], UUID, List[String])]] = tx(
     (fr"select" ++ cols ++ fr""", k.id, k.scopes from api_key k join app_user u on u.id = k.user_id

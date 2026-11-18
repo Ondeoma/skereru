@@ -9,7 +9,7 @@ export default defineConfig({
   server: {
     // IPv4 で待ち受ける（LAN には公開しない）
     host: '127.0.0.1',
-    proxy: { '/api': backend, '/auth': backend, '/mcp': backend, '/.well-known': backend },
+    proxy: { '/api': backend, '/auth': backend, '/mcp': backend, '/oauth': backend, '/.well-known': backend },
   },
   build: { chunkSizeWarningLimit: 2000 },
 })

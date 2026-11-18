@@ -2,7 +2,7 @@
 // API（/api など）はキャッシュしない. 画面を更新したら CACHE の版を上げなくてよい（/assets はファイル名に版が入る. index.html は毎回取りに行く）.
 const CACHE = 'app-v1'
 const SHELL = ['/', '/manifest.webmanifest', '/favicon.svg', '/icon-192.png']
-const SKIP = ['/api/', '/auth/', '/mcp', '/.well-known/', '/mail/config-v1.1.xml', '/healthz']
+const SKIP = ['/api/', '/auth/', '/mcp', '/oauth/', '/.well-known/', '/mail/config-v1.1.xml', '/healthz']
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).catch(() => {}).then(() => self.skipWaiting()))

@@ -66,6 +66,20 @@ object Config:
   private def notPlaceholder(name: String, v: Option[String], devLogin: Boolean): Either[String, Unit] =
     Either.cond(devLogin || !v.exists(_.toLowerCase.contains("change-me")), (), s"$name がテンプレートの値（change-me）のままです。秘密の値に変えてください")
 
+  /** OAUTH_CLIENTS: [{"id":"skakapo","secret":"…","redirectUri":"https://…/callback","name":"skakapo","scopes":["read","write","send"]}]（scopes は省くと read だけ） */
+  private def oauthClients: Either[String, List[OAuthClient]] =
+    opt("OAUTH_CLIENTS").fold(Right(Nil)) { s =>
+      io.circe.parser.parse(s).flatMap(_.as[List[io.circe.Json]]).left.map(_ => "OAUTH_CLIENTS は JSON の配列で指定してください").flatMap(_.traverse { j =>
+        val c = j.hcursor
+        (c.get[String]("id"), c.get[String]("secret"), c.get[String]("redirectUri")).tupled.toOption
+          .filter((id, sec, uri) => id.nonEmpty && sec.length >= 16 && (uri.startsWith("https://") || uri.startsWith("http://localhost")))
+          .toRight("OAUTH_CLIENTS の各要素には id・secret（16文字以上）・redirectUri（https://）を指定してください")
+          .flatMap((id, sec, uri) => c.get[List[String]]("scopes").toOption.getOrElse(List("read")) match
+            case sc if sc.nonEmpty && sc.forall(OAuthClient.Scopes.contains) => Right(OAuthClient(id, sec, uri, c.get[String]("name").getOrElse(id), sc.distinct))
+            case _ => Left(s"OAUTH_CLIENTS の $id の scopes は read・write・send から選んでください"))
+      }).flatMap(cs => Either.cond(cs.map(_.id).distinct.size == cs.size, cs, "OAUTH_CLIENTS の id が重なっています"))
+    }
+
   def load: IO[AppConfig] = IO.fromEither(
     (for
       dbUrl  <- required("DATABASE_URL")
@@ -96,6 +110,7 @@ object Config:
                   case _ => Left("CLAMAV は host:port で指定してください"))
       skuaka <- opt("SKUAKA_URL").traverse(u => Either.cond(u.startsWith("https://") || (devLogin && u.startsWith("http://")), u.stripSuffix("/"),
                   "SKUAKA_URL は https:// で始めてください"))
+      clients <- oauthClients
       sts = opt("MTA_STS_MODE").getOrElse("testing").toLowerCase
       _ <- Either.cond(Set("testing", "enforce", "none")(sts), (), "MTA_STS_MODE は testing・enforce・none のどれかです")
     yield
@@ -117,7 +132,8 @@ object Config:
           devLogin = devLogin,
           maxUploadBytes = int("MAX_UPLOAD_MB").getOrElse(25).toLong * 1024 * 1024,
           timezone = tz,
-          autoCreateUsers = bool("AUTO_CREATE_USERS", true)
+          autoCreateUsers = bool("AUTO_CREATE_USERS", true),
+          oauthClients = clients
         ),
         mail = MailConfig(
           hostname = host,
@@ -247,6 +263,7 @@ object Main extends IOApp.Simple:
         rest =
           healthRoutes(xa, cfg.nodeId) <+>
             new AuthRoutes(oidc, users, adminSvc, sess, cfg.api, cfg.mail).routes <+>
+            new OAuthRoutes(new OAuthStore(xa), users, sess, cfg.api).routes <+>
             new MeRoutes(users, domains, mail, queue, sess, cfg.mail).routes <+>
             new AvatarRoutes(new AvatarStore(xa), sess).routes <+>
             new MailRoutes(mailSvc, mail, schedules, sess, cfg.api, changes).routes <+>
@@ -332,7 +349,7 @@ object Main extends IOApp.Simple:
   private def spa(dir: String): HttpRoutes[IO] =
     val files = fileService[IO](FileService.Config(dir))
     val index = HttpRoutes.of[IO] {
-      case req @ GET -> _ if !Set("api", "auth", "mcp", ".well-known").exists(p => req.pathInfo.renderString.startsWith("/" + p)) =>
+      case req @ GET -> _ if !Set("api", "auth", "mcp", "oauth", ".well-known").exists(p => req.pathInfo.renderString.startsWith("/" + p)) =>
         StaticFile.fromPath(Path(dir) / "index.html", Some(req)).getOrElseF(NotFound())
     }
     HttpRoutes[IO] { req =>

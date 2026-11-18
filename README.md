@@ -130,6 +130,7 @@ java -cp 'dist/lib/*' skereru.app.Main
 | `SKORIMAKO_RUM_TOKEN` / `SKORIMAKO_RUM_URL` / `SKORIMAKO_RUM_SAMPLE_RATE` | 画面のブラウザの観測（skorimako の RUM）。トークンは skorimako の管理の画面で登録したアプリのもの。URL を省略すると `SKORIMAKO_URL` |
 | `VAPID_SUBJECT` | プッシュ通知（PWA）の連絡先（`mailto:…` か `https://…`。省略すると `PUBLIC_URL`）。VAPID の鍵は初回の起動で作って DB に保存する |
 | `SKUAKA_URL` | 兄弟のカレンダー skuaka の URL（`https://`）。設定すると、会議の招待を skuaka に追加できる（利用者は設定の「連携」で skuaka の API トークンを入れる） |
+| `OAUTH_CLIENTS` | skereru を OAuth（認可コード + PKCE）で使う外部のサービス（skakapo など）。JSON の配列: `[{"id":"skakapo","secret":"…（16文字以上）","redirectUri":"https://…/api/connections/callback","name":"skakapo","scopes":["read","write","send"]}]`。`scopes` はそのクライアントが求めてよい範囲（read・write・send。省くと read だけ）。入口は `/oauth/authorize`・`/oauth/token`（クライアントの認証は Basic。アクセストークンは1時間で、refresh_token で更新）・`/oauth/revoke`。利用者は設定の「APIキー・MCP」の「連携しているサービス」で確認・取り消しができる |
 | `DEV_LOGIN` / `ALLOW_PLAIN_AUTH` | 開発用のログイン・暗号化されていない接続での認証（開発用。本番では使わない） |
 
 ## メールソフト・API・MCP

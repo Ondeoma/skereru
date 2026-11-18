@@ -355,4 +355,7 @@ final case class CalendarAddedDto(url: String) derives Encoder.AsObject, Decoder
 /** 兄弟のサービスとの連携の状態. skuakaUrl はサーバーに設定された skuaka（なければ連携できない）. */
 final case class IntegrationsDto(skuakaUrl: Option[String], skuakaConnected: Boolean) derives Encoder.AsObject, Decoder
 final case class TokenReq(token: String) derives Encoder.AsObject, Decoder
+/** 利用者が OAuth で許可した外部のサービス（skakapo など）。設定の画面で確認・取り消しができる. */
+final case class OAuthGrantDto(clientId: String, name: String, scopes: List[String], createdAt: Timestamp, lastUsedAt: Option[Timestamp])
+    derives Encoder.AsObject, Decoder
 

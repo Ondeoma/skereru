@@ -8,7 +8,7 @@ import skereru.shared.*
 import java.util.UUID
 import scala.scalajs.concurrent.JSExecutionContext.Implicits.queue
 
-// 管理: 概要・ドメイン（DNS の案内）・ユーザー・アドレス（別名・転送）・送信待ち・監査ログ
+// 管理: 概要・ドメイン（DNS の案内）・ユーザー・アドレス（別名・転送）・エージェント専用アカウント・送信待ち・監査ログ
 case class State(tab: RV[String] = RV("overview"),
                  stats: RV[Option[StatsDto]] = RV(None),
                  domains: RV[List[DomainDto]] = RV(Nil),
@@ -26,6 +26,14 @@ case class State(tab: RV[String] = RV("overview"),
                  aUser: RV[String] = RV(""),
                  aFwd: RV[String] = RV(""),
                  aSend: RV[Boolean] = RV(true),
+                 agents: RV[List[AgentDto]] = RV(Nil),
+                 gName: RV[String] = RV(""),
+                 gAddr: RV[String] = RV(""),
+                 keyFor: RV[Option[AgentDto]] = RV(None),
+                 kName: RV[String] = RV("skakapo"),
+                 kScopes: RV[List[String]] = RV(List("read", "write")),
+                 kDays: RV[String] = RV(""),
+                 createdKey: RV[Option[(String, String)]] = RV(None),
                  queue: RV[List[QueueItemDto]] = RV(Nil),
                  qStatus: RV[String] = RV("queued"),
                  audit: RV[List[AuditDto]] = RV(Nil),
@@ -38,7 +46,7 @@ def mounted(s: State): Unit = { pageTitle("管理"); loadAll(s) }
 
 def loadAll(s: State): Unit = {
   Api.get[StatsDto]("/api/admin/stats").foreach(x => s.stats := Some(x))
-  loadDomains(s); loadUsers(s); loadAddrs(s); loadQueue(s)
+  loadDomains(s); loadUsers(s); loadAddrs(s); loadAgents(s); loadQueue(s)
   Api.get[List[AuditDto]]("/api/admin/audit?limit=200").foreach(s.audit := _)
   Api.get[List[DmarcReportDto]]("/api/admin/dmarc").foreach(s.dmarc := _)
 }
@@ -55,7 +63,7 @@ def openRows(s: State) = s.dmarcOpen.mapC(_.map(_._2).getOrElse(Nil))
 def openTitle(s: State) = s.dmarcOpen.mapC(_.map(o => s"${o._1.orgName}（${o._1.domain}・${Fmt.date(o._1.begin)}〜${Fmt.date(o._1.end)}）").getOrElse(""))
 
 val tabs: List[(String, String)] = List("overview" -> "概要", "domains" -> "ドメイン", "users" -> "ユーザー", "addresses" -> "アドレス・別名",
-  "queue" -> "送信待ち", "dmarc" -> "DMARC", "audit" -> "監査ログ")
+  "agents" -> "エージェント", "queue" -> "送信待ち", "dmarc" -> "DMARC", "audit" -> "監査ログ")
 def tabClass(s: State, t: String) = s.tab.mapC(x => if (x == t) "active" else "")
 def on(s: State, t: String) = s.tab.mapC(_ == t)
 
@@ -122,6 +130,30 @@ def deleteAddr(s: State, a: AddressDto): Unit = Dialog.confirm(s"アドレス ${
   Store.report(Api.delete(s"/api/admin/addresses/${a.id}"))(_ => loadAddrs(s))
 }
 def userChoices(s: State) = s.users.mapC(us => Opt("", "（ユーザーなし・転送だけ）") :: us.map(u => Opt(u.id.toString, u.name, hint = u.addresses.headOption.getOrElse(""))))
+
+// ---------------------------------------------------------------- エージェント専用アカウント
+
+def loadAgents(s: State): Unit = Api.get[List[AgentDto]]("/api/admin/agents").foreach(s.agents := _)
+def addAgent(s: State): Unit =
+  Store.report(Api.post[AgentDto]("/api/admin/agents", CreateAgentReq(s.gName.v.trim, Option(s.gAddr.v.trim).filter(_.nonEmpty)).asJson)) { _ =>
+    s.gName := ""; s.gAddr := ""; loadAgents(s); loadUsers(s); loadAddrs(s); Store.toast("エージェント専用アカウントを作りました")
+  }
+def patchAgent(s: State, a: AgentDto, r: UpdateAgentReq): Unit = Store.report(Api.patch[AgentDto](s"/api/admin/agents/${a.id}", r.asJson))(_ => loadAgents(s))
+def renameAgent(s: State, a: AgentDto): Unit = Dialog.prompt("エージェント専用アカウントの名前", a.name, "変更") { v =>
+  patchAgent(s, a, UpdateAgentReq(Some(v), None))
+}
+def openKey(s: State, a: AgentDto): Unit = { s.keyFor := Some(a); s.createdKey := None }
+def keyForList(s: State) = s.keyFor.mapC(_.toList)
+def issueKey(s: State, a: AgentDto): Unit =
+  Store.report(Api.post[CreatedApiKeyDto](s"/api/admin/agents/${a.id}/keys", CreateApiKeyReq(s.kName.v, s.kScopes.v, s.kDays.v.toIntOption).asJson)) { r =>
+    s.keyFor := None; s.createdKey := Some(a.name -> r.key); loadAgents(s)
+  }
+def revokeAgentKey(s: State, a: AgentDto, k: ApiKeyDto): Unit =
+  Dialog.confirm(s"${a.name} の APIキー「${k.name}」を失効させますか？このキーを使っているエージェントは使えなくなります。", "失効") {
+    Store.report(Api.delete(s"/api/admin/agents/${a.id}/keys/${k.id}"))(_ => loadAgents(s))
+  }
+def createdKeyText(s: State) = s.createdKey.mapC(_.map(_._2).getOrElse(""))
+def createdKeyFor(s: State) = s.createdKey.mapC(_.map(_._1).getOrElse(""))
 
 // ---------------------------------------------------------------- 送信待ち
 
@@ -268,6 +300,71 @@ def stat(s: State, f: StatsDto => String) = s.stats.mapC(_.map(f).getOrElse("…
       </div>
     </template>
 
+    <template v-if="on(s, &quot;agents&quot;)">
+      <section class="panel">
+        <h2>エージェント専用アカウント</h2>
+        <p class="muted small">skakapo などの外の AI エージェントが、このサービスの MCP（<code>/mcp</code>）と REST API を使うためのアカウントです。
+          人はこのアカウントでログインできず、管理者が発行した APIキーでだけ使えます。</p>
+        <p class="muted small">エージェントは<b>このアカウント自身の権限</b>で動きます。見られるのは、このアカウントのメールボックス（このアカウントに配送されるアドレス宛てのメール）だけです。
+          ほかの人のメールを扱わせたいときは、ふつうの方法で権限を与えてください（「アドレス・別名」で配送先をこのアカウントにする・転送先に加える、など）。
+          送信には、差出人に使えるアドレスと send のスコープが必要です。</p>
+        <p class="muted small">エージェントが行った送信・整理などは、このアカウントが行ったものとして記録されます（監査ログの経路は mcp・api）。</p>
+        <form @submit.prevent="addAgent(s)">
+          <div class="row">
+            <input type="text" v-model="s.gName" placeholder="名前（例: skakapo）" maxlength="60" class="grow">
+            <input type="email" v-model="s.gAddr" placeholder="送信に使うアドレス（省略可。例: agent@example.com）" class="grow">
+            <button type="submit" class="primary">作成</button>
+          </div>
+        </form>
+      </section>
+      <div v-if="s.createdKey.mapC(_.isDefined)" class="panel created">
+        <p><b>{{ createdKeyFor(s) }} の APIキーを発行しました。</b></p>
+        <div class="row"><code class="grow keytext">{{ createdKeyText(s) }}</code><button class="small" @click="Dom.copy(createdKeyText(s).v)">コピー</button></div>
+        <p class="small">この画面を閉じると二度と表示されません。skakapo の管理画面の「サービス」→ このサービス →「エージェント専用アカウント」に貼り付けてください。</p>
+        <button class="small" @click="s.createdKey := None">閉じる</button>
+      </div>
+      <div class="table-wrap">
+        <table class="list">
+          <thead><tr><th>名前</th><th>アドレス</th><th>APIキー</th><th>無効</th><th></th></tr></thead>
+          <tbody>
+            <tr v-for="a in s.agents" :key="a.id">
+              <td><b>{{ a.name }}</b><div class="muted small">作成 {{ Fmt.date(a.createdAt) }}</div></td>
+              <td class="small">{{ if (a.addresses.isEmpty) "—" else a.addresses.mkString(", ") }}</td>
+              <td class="small">
+                <div v-for="k in a.keys" :key="k.id" class="keyrow">
+                  <code>{{ k.prefix }}…</code> {{ k.name }}（{{ k.scopes.mkString(", ") }}）
+                  <span class="muted">{{ k.expiresAt.map(x => "期限 " + Fmt.date(x)).getOrElse("無期限") }}・{{ k.lastUsedAt.map(Fmt.ago).getOrElse("未使用") }}</span>
+                  <button class="danger small" @click="revokeAgentKey(s, a, k)">失効</button>
+                </div>
+                <span v-if="a.keys.isEmpty" class="muted">なし</span>
+              </td>
+              <td><input type="checkbox" :checked="a.disabled" @change="patchAgent(s, a, UpdateAgentReq(None, Some(Dom.checked(event))))"></td>
+              <td class="nowrap">
+                <button class="small primary" @click="openKey(s, a)">キーを発行</button>
+                <button class="small" @click="renameAgent(s, a)">名前を変更</button>
+              </td>
+            </tr>
+            <tr v-if="s.agents.mapC(_.isEmpty)"><td colspan="5" class="muted">エージェント専用アカウントはありません</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <Modal v-for="a in keyForList(s)" :onClose="_ => s.keyFor := None">
+        <h2>{{ a.name }} の APIキーを発行</h2>
+        <form @submit.prevent="issueKey(s, a)">
+          <div class="row">
+            <input type="text" v-model="s.kName" placeholder="用途（例: skakapo）" class="grow">
+            <Combo :bind="Some(s.kDays)" :options='Opt.of(List("" -> "無期限", "30" -> "30日", "90" -> "90日", "365" -> "1年"))' />
+          </div>
+          <div class="row">
+            <span class="small muted">スコープ:</span>
+            <label v-for="sc in ApiScope.all.filterNot(_ == ApiScope.Admin)" class="small"><input type="checkbox" :value="sc" v-model="s.kScopes"> {{ ApiScope.label(sc) }}（{{ sc }}）</label>
+          </div>
+          <p class="muted small">エージェント専用アカウントのキーに管理（admin）のスコープは付けられません。</p>
+          <div class="actions"><button type="button" @click="s.keyFor := None">やめる</button><button type="submit" class="primary">発行</button></div>
+        </form>
+      </Modal>
+    </template>
+
     <template v-if="on(s, &quot;queue&quot;)">
       <div class="row filter">
         <Combo :bind="Some(s.qStatus)" :options='Opt.of(List("queued" -> "送信待ち", "failed" -> "失敗", "sent" -> "送信済み"))' :onChange="_ => loadQueue(s)" />
@@ -347,5 +444,7 @@ def stat(s: State, f: StatsDto => String) = s.stats.mapC(_.map(f).getOrElse("…
 .dns code { word-break: break-all; }
 tr.warn td { color: var(--danger); }
 .val { cursor: copy; background: var(--side); padding: .1rem .3rem; border-radius: 4px; }
+.keytext { background: var(--side); padding: .3rem .5rem; border-radius: 5px; word-break: break-all; font-size: .8rem; }
+.keyrow { margin: .15rem 0; }
 .err { color: var(--danger); max-width: 28rem; word-break: break-word; }
 </style>

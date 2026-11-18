@@ -310,6 +310,13 @@ final case class CreateUserReq(name: String, address: String, email: Option[Stri
 final case class UpdateUserReq(name: Option[String], isAdmin: Option[Boolean], disabled: Option[Boolean], quotaMb: Option[Int])
     derives Encoder.AsObject, Decoder
 
+/** エージェント専用アカウント（skakapo などの外の AI エージェントが APIキーで使う。ログインはできない）. */
+final case class AgentDto(id: UUID, name: String, disabled: Boolean, createdAt: Timestamp, addresses: List[String], keys: List[ApiKeyDto])
+    derives Encoder.AsObject, Decoder
+/** address を指定すると、そのアドレス（送信できる主アドレス）も作る. */
+final case class CreateAgentReq(name: String, address: Option[String]) derives Encoder.AsObject, Decoder
+final case class UpdateAgentReq(name: Option[String], disabled: Option[Boolean]) derives Encoder.AsObject, Decoder
+
 final case class AddressReq(address: String, userId: Option[UUID], forwardTo: List[String], canSend: Boolean) derives Encoder.AsObject, Decoder
 
 final case class QueueItemDto(id: UUID, sender: String, recipient: String, status: String, attempts: Int, nextAttemptAt: Timestamp,

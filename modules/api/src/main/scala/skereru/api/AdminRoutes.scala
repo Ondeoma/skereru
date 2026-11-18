@@ -1,6 +1,7 @@
 package skereru.api
 
 import cats.effect.*
+import cats.syntax.all.*
 import io.circe.Json
 import io.circe.syntax.*
 import org.http4s.*
@@ -13,6 +14,10 @@ import skereru.shared.*
 /** 管理（ドメイン・DNS・ユーザー・アドレス・送信待ち・監査ログ・統計）。すべて監査ログに残す。 */
 final class AdminRoutes(svc: AdminService, users: UserStore, domains: DomainStore, mail: MailStore, queue: QueueStore, delivery: Delivery, dmarc: DmarcStore,
     val sessions: SessionAuth) extends RouteSupport:
+
+  /** エージェント専用アカウントだけを対象にする（ふつうのユーザーなら 404）。 */
+  private def withAgent(id: java.util.UUID)(f: User => IO[Response[IO]]): IO[Response[IO]] =
+    users.findAgent(id).flatMap(_.fold(err(Status.NotFound, "エージェント専用アカウントが見つかりません"))(f))
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     // DMARC の集計レポート（dmarc-reports@<ドメイン> に届いたもの）
@@ -101,6 +106,36 @@ final class AdminRoutes(svc: AdminService, users: UserStore, domains: DomainStor
           case None => err(Status.NotFound, "ユーザーが見つかりません")
           case Some(u) => users.delete(id) *> audit(users, s, req, "user.delete", Some(u.name)) *> NoContent()
         })
+
+    // ---------------------------------------------------------------- エージェント専用アカウント（画面からのみ。APIキーでは管理させない）
+
+    case req @ GET -> Root / "api" / "admin" / "agents" => adminSessionOnly(req)(_ => svc.agents.flatMap(Ok(_)))
+
+    case req @ POST -> Root / "api" / "admin" / "agents" =>
+      adminSessionOnly(req)(s => body[CreateAgentReq](req)(r => respond(svc.createAgent(r))(id =>
+        audit(users, s, req, "agent.create", Some(id.toString), Json.obj("name" -> r.name.trim.asJson, "address" -> r.address.asJson)) *>
+          svc.agent(id).flatMap(a => Created(a)))))
+
+    case req @ PATCH -> Root / "api" / "admin" / "agents" / UuidVar(id) =>
+      adminSessionOnly(req)(s => body[UpdateAgentReq](req)(r => withAgent(id) { _ =>
+        r.name.traverse(AgentAccounts.validName) match
+          case Left(e) => err(Status.BadRequest, e)
+          case Right(name) =>
+            users.update(id, name, None, r.disabled, None) *> audit(users, s, req, "agent.update", Some(id.toString), r.asJson) *>
+              svc.agent(id).flatMap(a => Ok(a))
+      }))
+
+    case req @ POST -> Root / "api" / "admin" / "agents" / UuidVar(id) / "keys" =>
+      adminSessionOnly(req)(s => body[CreateApiKeyReq](req)(r => withAgent(id) { _ =>
+        respond(ApiKeyIssuer.issue(users, id, r, Some(Fail.Invalid("エージェント専用アカウントのキーに admin スコープは付けられません"))))(c =>
+          audit(users, s, req, "agent.api_key.create", Some(c.info.id.toString), Json.obj("agent" -> id.asJson, "scopes" -> c.info.scopes.asJson)) *>
+            Created(c))
+      }))
+
+    case req @ DELETE -> Root / "api" / "admin" / "agents" / UuidVar(id) / "keys" / UuidVar(keyId) =>
+      adminSessionOnly(req)(s => withAgent(id)(_ => users.deleteApiKey(id, keyId).flatMap(n =>
+        if n == 0 then err(Status.NotFound, "APIキーが見つかりません")
+        else audit(users, s, req, "agent.api_key.delete", Some(keyId.toString), Json.obj("agent" -> id.asJson)) *> NoContent())))
 
     // ---------------------------------------------------------------- 送信待ち・監査ログ
 

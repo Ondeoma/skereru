@@ -66,6 +66,24 @@ object Op:
 
 extension [A](io: IO[Either[StoreError, A]]) def orFail: Res[A] = io.map(_.left.map(Fail.from))
 
+/** APIキーの発行（自分のキーと、管理者が発行するエージェント専用アカウントのキーで共通）。平文のキーは応答で1回だけ返す。 */
+object ApiKeyIssuer:
+  /** adminDenied: admin スコープを付けられないときの理由（付けられるなら None）。 */
+  def issue(users: UserStore, userId: UUID, r: CreateApiKeyReq, adminDenied: Option[Fail]): Res[CreatedApiKeyDto] =
+    val scopes = r.scopes.map(_.trim.toLowerCase).distinct
+    val invalid: Option[Fail] =
+      if r.name.trim.isEmpty then Some(Fail.Invalid("名前を入力してください"))
+      else if scopes.isEmpty || !scopes.forall(ApiScope.all.contains) then Some(Fail.Invalid("スコープは read / write / send / admin から選んでください"))
+      else if scopes.contains(ApiScope.Admin) then adminDenied
+      else if r.expiresDays.exists(d => d < 1 || d > 3650) then Some(Fail.Invalid("有効期限は1〜3650日です"))
+      else None
+    invalid match
+      case Some(f) => IO.pure(Left(f))
+      case None =>
+        val (key, prefix) = ApiKeys.generate()
+        users.createApiKey(userId, r.name.trim.take(100), Crypto.sha256(key), prefix, scopes,
+          r.expiresDays.map(d => Instant.now().plusSeconds(d.toLong * 86400))).map(info => Right(CreatedApiKeyDto(key, info)))
+
 /** 認証: Cookie のセッション、または `Authorization: Bearer <APIキー>`。 */
 final class SessionAuth(users: UserStore, cfg: ApiConfig):
 
@@ -166,8 +184,13 @@ trait RouteSupport extends Http4sDsl[IO]:
   protected def admin(req: Request[IO])(f: AuthSession => IO[Response[IO]]): IO[Response[IO]] = authed(req, ApiScope.Admin)(f)
 
   /** Cookie のセッションのみ（APIキー・アプリパスワードの発行など）。 */
-  protected def sessionOnly(req: Request[IO])(f: AuthSession => IO[Response[IO]]): IO[Response[IO]] =
-    authed(req)(s => if s.isSession then f(s) else err(Status.Forbidden, "この操作は画面からのみ行えます"))
+  protected def sessionOnly(req: Request[IO])(f: AuthSession => IO[Response[IO]]): IO[Response[IO]] = authed(req)(onlySession(f))
+
+  /** 管理者の、Cookie のセッションのみ（APIキーでエージェント専用アカウントを管理させない）。 */
+  protected def adminSessionOnly(req: Request[IO])(f: AuthSession => IO[Response[IO]]): IO[Response[IO]] = admin(req)(onlySession(f))
+
+  private def onlySession(f: AuthSession => IO[Response[IO]])(s: AuthSession): IO[Response[IO]] =
+    if s.isSession then f(s) else err(Status.Forbidden, "この操作は画面からのみ行えます")
 
   protected def body[A: Decoder](req: Request[IO])(f: A => IO[Response[IO]]): IO[Response[IO]] =
     req.as[A].attempt.flatMap {

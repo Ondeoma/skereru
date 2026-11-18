@@ -22,7 +22,9 @@ final class UserStore(xa: Transactor[IO]) extends TxStore(xa):
 
   /** IdP でログインした人のユーザー。sub が一致する人、なければ管理者が先に作った（email が一致する未結び付けの）ユーザー、なければ新規。 */
   /** email は IdP が確かめたもの（emailVerified）だけを渡すこと。管理者が作ったユーザーへの結び付けに使う。 */
-  def login(sub: String, name: String, email: Option[String], avatar: Option[String], create: Boolean): IO[Option[User]] = tx(
+  /** エージェント専用アカウントの sub（`agent:`）ではログインさせない。 */
+  def login(sub: String, name: String, email: Option[String], avatar: Option[String], create: Boolean): IO[Option[User]] =
+    if AgentAccounts.isAgent(sub) then IO.pure(None) else tx(
     for
       bySub <- (fr"select" ++ cols ++ fr"from app_user u where u.oidc_sub = $sub").query[User].option
       res <- bySub match
@@ -51,6 +53,23 @@ final class UserStore(xa: Transactor[IO]) extends TxStore(xa):
   def create(name: String, email: Option[String], quota: Option[Long]): ConnectionIO[UUID] =
     val id = UUID.randomUUID()
     sql"insert into app_user (id, name, email, quota_bytes) values ($id, $name, $email, $quota)".update.run.as(id)
+
+  /** エージェント専用アカウントを作る（email なし・ログインできない sub）。 */
+  def createAgent(name: String): ConnectionIO[UUID] =
+    val id = UUID.randomUUID()
+    sql"insert into app_user (id, oidc_sub, name, email) values ($id, ${AgentAccounts.newSub()}, $name, null)".update.run.as(id)
+
+  private val agentCond = fr"u.oidc_sub like ${AgentAccounts.Prefix + "%"}"
+
+  def agents: IO[List[User]] = tx((fr"select" ++ cols ++ fr"from app_user u where" ++ agentCond ++ fr"order by u.created_at").query[User].to[List])
+
+  def findAgent(id: UUID): IO[Option[User]] = tx((fr"select" ++ cols ++ fr"from app_user u where u.id = $id and" ++ agentCond).query[User].option)
+
+  /** エージェント専用アカウントの APIキー（ユーザーの ID ごと）。 */
+  def agentApiKeys: IO[List[(UUID, ApiKeyDto)]] = tx(
+    (fr"select k.user_id, k.id, k.name, k.prefix, k.scopes, k.created_at, k.expires_at, k.last_used_at from api_key k join app_user u on u.id = k.user_id where" ++
+      agentCond ++ fr"order by k.created_at desc").query[(UUID, ApiKeyDto)].to[List]
+  )
 
   /** 開発用のログイン（名前で探し、なければ作る）。 */
   def devUser(name: String, email: Option[String], admin: Boolean): IO[User] = tx(

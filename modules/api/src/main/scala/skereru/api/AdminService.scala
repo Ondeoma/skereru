@@ -73,21 +73,48 @@ final class AdminService(xa: Transactor[IO], users: UserStore, domains: DomainSt
 
   /** メールのユーザーを作る（主アドレスつき）。 */
   def createUser(r: CreateUserReq): Res[UUID] =
-    val addr = Address.toAscii(r.address.trim).toLowerCase
     if r.name.trim.isEmpty then IO.pure(Left(Fail.Invalid("名前を入力してください")))
-    else if !Address.valid(addr) then IO.pure(Left(Fail.Invalid("メールアドレスが正しくありません")))
     else if r.email.exists(e => !Address.valid(Address.toAscii(e.trim))) then IO.pure(Left(Fail.Invalid("IdP のメールアドレスが正しくありません")))
     else
-      domains.domainByName(Address.domainOf(addr)).flatMap {
-        case None => IO.pure(Left(Fail.Invalid(s"ドメイン ${Address.domainOf(addr)} が登録されていません")))
-        case Some(d) =>
-          (for
-            uid <- users.create(r.name.trim.take(100), r.email.map(_.trim.toLowerCase).orElse(Some(addr)), r.quotaMb.map(_.toLong * 1024 * 1024))
-            a <- domains.createAddress(addr, d.id, Some(uid), Nil, true, true)
-            _ <- a.fold(e => doobie.free.connection.raiseError(new IllegalStateException(e.message)), _ => doobie.free.connection.unit)
-            _ <- mail.ensureDefaultsC(uid)
-          yield uid).transact(xa).attempt.map(_.left.map(e => Fail.Conflict(Option(e.getMessage).getOrElse("作れませんでした"))))
-      }
+      val addr = Address.toAscii(r.address.trim).toLowerCase
+      withMailbox(Some(addr))(users.create(r.name.trim.take(100), r.email.map(_.trim.toLowerCase).orElse(Some(addr)), r.quotaMb.map(_.toLong * 1024 * 1024)))
+
+  /** エージェント専用アカウントを作る（ログインできない。address を指定すると送信できる主アドレスも作る）。 */
+  def createAgent(r: CreateAgentReq): Res[UUID] =
+    AgentAccounts.validName(r.name) match
+      case Left(e) => IO.pure(Left(Fail.Invalid(e)))
+      case Right(n) => withMailbox(r.address.map(a => Address.toAscii(a.trim).toLowerCase).filter(_.nonEmpty))(users.createAgent(n))
+
+  /** ユーザーを作り、主アドレス（あれば）と既定のメールボックスを同じトランザクションで作る。 */
+  private def withMailbox(address: Option[String])(create: doobie.ConnectionIO[UUID]): Res[UUID] =
+    def run(addr: Option[(String, UUID)]): Res[UUID] =
+      (for
+        uid <- create
+        _ <- addr.fold(doobie.free.connection.unit) { (a, did) =>
+               domains.createAddress(a, did, Some(uid), Nil, true, true)
+                 .flatMap(_.fold(e => doobie.free.connection.raiseError(new IllegalStateException(e.message)), _ => doobie.free.connection.unit))
+             }
+        _ <- mail.ensureDefaultsC(uid)
+      yield uid).transact(xa).attempt.map(_.left.map(e => Fail.Conflict(Option(e.getMessage).getOrElse("作れませんでした"))))
+    address match
+      case None => run(None)
+      case Some(a) if !Address.valid(a) => IO.pure(Left(Fail.Invalid("メールアドレスが正しくありません")))
+      case Some(a) =>
+        domains.domainByName(Address.domainOf(a)).flatMap {
+          case None    => IO.pure(Left(Fail.Invalid(s"ドメイン ${Address.domainOf(a)} が登録されていません")))
+          case Some(d) => run(Some(a -> d.id))
+        }
+
+  /** エージェント専用アカウントの一覧（アドレスと APIキーつき。キーのハッシュは返さない）。 */
+  def agents: IO[List[AgentDto]] =
+    for
+      as <- users.agents
+      keys <- users.agentApiKeys
+      addrs <- domains.addresses(None, None)
+    yield as.map(u => AgentDto(u.id, u.name, u.disabled, u.createdAt, addrs.filter(_.userId.contains(u.id)).map(_.address),
+      keys.collect { case (uid, k) if uid == u.id => k }))
+
+  def agent(id: UUID): IO[Option[AgentDto]] = agents.map(_.find(_.id == id))
 
   /** IdP でログインした人のアドレスを自動で作る（ドメインが auto_provision のとき）。 */
   def autoProvision(u: User): IO[Unit] =

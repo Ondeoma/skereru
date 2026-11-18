@@ -141,3 +141,18 @@ final case class AuthSession(user: User, groups: List[String], isAdmin: Boolean,
     case AuthVia.ApiKey(_, s, _) => s
     case _                       => Set("read", "write", "send") ++ (if isAdmin then Set("admin") else Set.empty)
   def can(scope: String): Boolean = scopes.contains(scope) && (scope != "admin" || isAdmin)
+
+/** エージェント専用アカウント（skakapo などの外の AI エージェントが APIキーで使う。ログインはできない）。
+  * oidc_sub を `agent:<uuid>` にし、email は持たない（IdP の sub・開発用のログインの `dev:` と重ならず、email での結び付けもされない）。 */
+object AgentAccounts:
+  val Prefix = "agent:"
+  def isAgent(sub: String): Boolean = sub.startsWith(Prefix)
+  def isAgent(u: User): Boolean = u.oidcSub.exists(isAgent)
+  def newSub(): String = Prefix + UUID.randomUUID()
+
+  /** 名前を確かめる（前後の空白を除いて1〜60文字・制御文字なし）。 */
+  def validName(name: String): Either[String, String] =
+    val n = name.trim
+    if n.isEmpty || n.length > 60 then Left("名前は1〜60文字で入力してください")
+    else if n.exists(Character.isISOControl) then Left("名前に制御文字は使えません")
+    else Right(n)

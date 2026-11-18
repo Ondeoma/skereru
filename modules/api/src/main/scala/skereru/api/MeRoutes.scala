@@ -11,7 +11,6 @@ import skereru.db.*
 import skereru.mail.MailConfig
 import skereru.shared.*
 
-import java.time.Instant
 
 /** 自分の情報・設定・アプリパスワード・APIキー・宛先の候補・振り分けの規則。 */
 final class MeRoutes(users: UserStore, domains: DomainStore, mail: MailStore, queue: QueueStore, val sessions: SessionAuth, mcfg: MailConfig)
@@ -103,21 +102,9 @@ final class MeRoutes(users: UserStore, domains: DomainStore, mail: MailStore, qu
     case req @ GET -> Root / "api" / "me" / "api-keys" => sessionOnly(req)(s => users.apiKeys(s.user.id).flatMap(Ok(_)))
 
     case req @ POST -> Root / "api" / "me" / "api-keys" =>
-      sessionOnly(req)(s => body[CreateApiKeyReq](req) { r =>
-        val scopes = r.scopes.map(_.trim.toLowerCase).distinct
-        if r.name.trim.isEmpty then err(Status.BadRequest, "名前を入力してください")
-        else if scopes.isEmpty || !scopes.forall(ApiScope.all.contains) then err(Status.BadRequest, "スコープは read / write / send / admin から選んでください")
-        else if scopes.contains(ApiScope.Admin) && !s.isAdmin then err(Status.Forbidden, "admin スコープは管理者だけが使えます")
-        else if r.expiresDays.exists(d => d < 1 || d > 3650) then err(Status.BadRequest, "有効期限は1〜3650日です")
-        else
-          val (key, prefix) = ApiKeys.generate()
-          for
-            info <- users.createApiKey(s.user.id, r.name.trim.take(100), Crypto.sha256(key), prefix, scopes,
-                      r.expiresDays.map(d => Instant.now().plusSeconds(d.toLong * 86400)))
-            _ <- audit(users, s, req, "api_key.create", Some(info.id.toString), Json.obj("scopes" -> scopes.asJson))
-            resp <- Created(CreatedApiKeyDto(key, info))
-          yield resp
-      })
+      sessionOnly(req)(s => body[CreateApiKeyReq](req)(r =>
+        respond(ApiKeyIssuer.issue(users, s.user.id, r, Option.unless(s.isAdmin)(Fail.Forbidden("admin スコープは管理者だけが使えます"))))(c =>
+          audit(users, s, req, "api_key.create", Some(c.info.id.toString), Json.obj("scopes" -> c.info.scopes.asJson)) *> Created(c))))
 
     case req @ DELETE -> Root / "api" / "me" / "api-keys" / UuidVar(id) =>
       sessionOnly(req)(s => users.deleteApiKey(s.user.id, id).flatMap(n =>

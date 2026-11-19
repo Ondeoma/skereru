@@ -6,11 +6,7 @@ import scala.scalajs.js
 
 /** 日時の選択（予約送信・スヌーズ）. 「明日の朝」などの候補と、日時の入力. */
 object When {
-  private def at(
-    d: js.Date,
-    days: Int,
-    hour: Int
-  ): js.Date = {
+  private def at(d: js.Date, days: Int, hour: Int): js.Date = {
     val x = new js.Date(d.getFullYear().toInt, d.getMonth().toInt, d.getDate().toInt + days, hour, 0, 0, 0)
     x
   }
@@ -30,9 +26,7 @@ object When {
     ).filter(_._2.getTime() > now.getTime() + 60000)
   }
 
-  def label(
-    d: js.Date
-  ): String =
+  def label(d: js.Date): String =
     d.asInstanceOf[js.Dynamic].toLocaleString(
       "ja-JP",
       js.Dynamic.literal(
@@ -44,31 +38,18 @@ object When {
       )
     ).asInstanceOf[String]
 
-  private def iso(
-    d: js.Date
-  ): String = d.toISOString()
+  private def iso(d: js.Date): String = d.toISOString()
 
   /** 日時を選んでもらう（候補か、入力）. 選んだら f に渡す. */
-  def pick(
-    title: String
-  )(
-    f: Timestamp => Unit
-  ): Unit = {
+  def pick(title: String)(f: Timestamp => Unit): Unit = {
     val cs = choices()
     Dialog.choose(
       title,
-      cs.map(
-        (
-          l,
-          d
-        ) => iso(d) -> s"$l ${label(d)}"
-      ) :+ ("custom" -> "日時を指定…")
+      cs.map((l, d) => iso(d) -> s"$l ${label(d)}") :+ ("custom" -> "日時を指定…")
     ) {
       case "custom" =>
         val t = at(new js.Date(), 1, 9)
-        def two(
-          n: Double
-        ) = f"${n.toInt}%02d"
+        def two(n: Double) = f"${n.toInt}%02d"
         val init = s"${t.getFullYear().toInt}-${two(t.getMonth() + 1)}-${two(t.getDate())} 09:00"
         Dialog.prompt("日時を入力してください（例: 2026-11-20 09:00）", init) { v =>
           val d = new js.Date(v.trim.replace(" ", "T"))

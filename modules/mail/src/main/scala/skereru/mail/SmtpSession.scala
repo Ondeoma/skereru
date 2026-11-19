@@ -8,16 +8,15 @@ import java.nio.charset.StandardCharsets
 import java.util.Base64
 
 /** SMTP のセッション（RFC 5321）。 */
-final class SmtpSession(
-  conn: Conn,
-  mode: SmtpMode,
-  cfg: MailConfig,
-  tls: Option[TlsHolder],
-  b: Bridge,
-  delivery: Delivery,
-  auth: MailAuth,
-  queue: QueueStore,
-  log: String => Unit) {
+final class SmtpSession(conn: Conn,
+                        mode: SmtpMode,
+                        cfg: MailConfig,
+                        tls: Option[TlsHolder],
+                        b: Bridge,
+                        delivery: Delivery,
+                        auth: MailAuth,
+                        queue: QueueStore,
+                        log: String => Unit) {
 
   private var helo: Option[String] = None
   private var user: Option[User] = None
@@ -26,18 +25,11 @@ final class SmtpSession(
   private var errors = 0
   private var badRcpts = 0
 
-  private def reply(
-    s: String
-  ): Unit = conn.write(s + "\r\n")
-  private def multi(
-    code: String,
-    lines: List[String]
-  ): Unit =
+  private def reply(s: String): Unit = conn.write(s + "\r\n")
+  private def multi(code: String, lines: List[String]): Unit =
     conn.write(lines.init.map(l => s"$code-$l\r\n").mkString + s"$code ${lines.last}\r\n")
 
-  private def err(
-    s: String
-  ): Unit = {
+  private def err(s: String): Unit = {
     errors += 1
     reply(s)
     if errors >= 10 then {
@@ -82,10 +74,7 @@ final class SmtpSession(
 
   private def reset(): Unit = { mailFrom = None; rcpts.clear() }
 
-  private def hello(
-    verb: String,
-    name: String
-  ): Unit =
+  private def hello(verb: String, name: String): Unit =
     if name.isEmpty then err("501 5.5.4 Syntax: EHLO hostname")
     else {
       helo = Some(name.take(255))
@@ -120,9 +109,7 @@ final class SmtpSession(
           helo = None; user = None; reset()
       }
 
-  private def authenticate(
-    arg: String
-  ): Unit =
+  private def authenticate(arg: String): Unit =
     if !canAuth then
       err(if mode == SmtpMode.Mx then "503 5.5.1 AUTH not available on this port"
       else "538 5.7.11 Encryption required for requested authentication mechanism")
@@ -130,15 +117,11 @@ final class SmtpSession(
     else if helo.isEmpty then err("503 5.5.1 EHLO first")
     else {
       val parts = arg.trim.split("\\s+").toList
-      def ask(
-        prompt: String
-      ): Option[String] = {
+      def ask(prompt: String): Option[String] = {
         reply(s"334 $prompt")
         conn.readLine(2048).filterNot(_ == "*")
       }
-      def b64(
-        s: String
-      ) = scala.util.Try(new String(Base64.getDecoder.decode(s.trim), StandardCharsets.UTF_8)).toOption
+      def b64(s: String) = scala.util.Try(new String(Base64.getDecoder.decode(s.trim), StandardCharsets.UTF_8)).toOption
       val creds: Option[(String, String)] = parts.headOption.map(_.toUpperCase) match {
         case Some("PLAIN") =>
           val resp = parts.lift(1).orElse(ask(""))
@@ -167,10 +150,7 @@ final class SmtpSession(
     }
 
   /** "FROM:<a@b> SIZE=123" の形を読む。 */
-  private def pathArg(
-    arg: String,
-    prefix: String
-  ): Option[(String, Map[String, String])] = {
+  private def pathArg(arg: String, prefix: String): Option[(String, Map[String, String])] = {
     val a = arg.trim
     if !a.toUpperCase.startsWith(prefix) then None
     else {
@@ -195,9 +175,7 @@ final class SmtpSession(
     }
   }
 
-  private def mail(
-    arg: String
-  ): Unit =
+  private def mail(arg: String): Unit =
     if helo.isEmpty then err("503 5.5.1 EHLO/HELO first")
     else if mailFrom.isDefined then err("503 5.5.1 Nested MAIL command")
     else if mode == SmtpMode.Submission && user.isEmpty then err("530 5.7.0 Authentication required")
@@ -219,9 +197,7 @@ final class SmtpSession(
           }
       }
 
-  private def rcpt(
-    arg: String
-  ): Unit =
+  private def rcpt(arg: String): Unit =
     if mailFrom.isEmpty then err("503 5.5.1 MAIL first")
     else if rcpts.size >= cfg.maxRecipients then reply("452 4.5.3 Too many recipients")
     else
@@ -257,9 +233,7 @@ final class SmtpSession(
       }
 
   /** グレイリスト（送信元の /24・差出人・宛先の組）。通ってよければ true。 */
-  private def greylisted(
-    rcpt: String
-  ): Boolean = {
+  private def greylisted(rcpt: String): Boolean = {
     val ip = conn.clientIp match {
       case a: java.net.Inet4Address => a.getAddress.take(3).map(_ & 0xff).mkString(".")
       case a => a.getAddress.take(8).map(x => f"${x & 0xff}%02x").mkString
@@ -299,9 +273,7 @@ final class SmtpSession(
   /** DATA の全体にかけてよい時間。1回の読み込みごとのタイムアウトだけだと、少しずつ送って接続を保てるため。 */
   private val DataDeadlineMs = 10 * 60 * 1000L
 
-  private def readData(
-    borrow: Long => Boolean
-  ): Either[String, Array[Byte]] = {
+  private def readData(borrow: Long => Boolean): Either[String, Array[Byte]] = {
     val out = new ByteArrayOutputStream(64 * 1024)
     val deadline = System.currentTimeMillis() + DataDeadlineMs
     var reserved = 0L
@@ -347,9 +319,7 @@ final class SmtpSession(
     else Right(out.toByteArray)
   }
 
-  private def finish(
-    raw: Array[Byte]
-  ): Unit = {
+  private def finish(raw: Array[Byte]): Unit = {
     val env =
       Envelope(conn.clientIp, helo.getOrElse(""), mailFrom.getOrElse(""), rcpts.toList, conn.isTls, user.map(_.id))
     // 1通ごとの受け取り（inbound・submit）は Delivery がスパンにする（このセッションのスパンの子）

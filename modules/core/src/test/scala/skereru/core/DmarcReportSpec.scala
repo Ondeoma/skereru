@@ -88,9 +88,7 @@ class DmarcReportSpec extends munit.FunSuite {
       |</feedback>
       |""".stripMargin.getBytes(UTF_8)
 
-  private def gzip(
-    b: Array[Byte]
-  ): Array[Byte] = {
+  private def gzip(b: Array[Byte]): Array[Byte] = {
     val out = new ByteArrayOutputStream()
     val gz = new GZIPOutputStream(out)
     gz.write(b)
@@ -98,9 +96,7 @@ class DmarcReportSpec extends munit.FunSuite {
     out.toByteArray
   }
 
-  private def zip(
-    entries: (String, Array[Byte])*
-  ): Array[Byte] = {
+  private def zip(entries: (String, Array[Byte])*): Array[Byte] = {
     val out = new ByteArrayOutputStream()
     val z = new ZipOutputStream(out)
     for (name, b) <- entries do {
@@ -112,10 +108,7 @@ class DmarcReportSpec extends munit.FunSuite {
     out.toByteArray
   }
 
-  private def checkSample(
-    r: Either[String, DmarcAggregate]
-  )(using munit.Location
-  ): Unit = {
+  private def checkSample(r: Either[String, DmarcAggregate])(using munit.Location): Unit = {
     val a = r.fold(e => fail(s"Left: $e"), identity)
     assertEquals(a.orgName, "google.com")
     assertEquals(a.email, Some("noreply-dmarc-support@google.com"))

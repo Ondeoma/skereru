@@ -17,26 +17,20 @@ import java.time.Instant
 import java.util.UUID
 
 /** 画面・API・MCP からのメールの操作（一覧・表示・整理・送信・下書き）。 */
-final class MailService(
-  mail: MailStore,
-  users: UserStore,
-  domains: DomainStore,
-  queue: QueueStore,
-  blobs: Blobs,
-  delivery: Delivery,
-  mcfg: MailConfig,
-  changed: UUID => IO[Unit],
-  schedules: ScheduleStore) {
+final class MailService(mail: MailStore,
+                        users: UserStore,
+                        domains: DomainStore,
+                        queue: QueueStore,
+                        blobs: Blobs,
+                        delivery: Delivery,
+                        mcfg: MailConfig,
+                        changed: UUID => IO[Unit],
+                        schedules: ScheduleStore) {
 
-  private def addrs(
-    s: String
-  ): List[AddrDto] =
+  private def addrs(s: String): List[AddrDto] =
     if s.trim.isEmpty then Nil else Address.parseList(s).map(a => AddrDto(a.nameDecoded, a.address))
 
-  def summary(
-    m: MsgMeta,
-    threadCount: Int = 1
-  ): MessageSummaryDto =
+  def summary(m: MsgMeta, threadCount: Int = 1): MessageSummaryDto =
     MessageSummaryDto(
       m.id,
       m.mailboxId,
@@ -58,19 +52,11 @@ final class MailService(
 
   private val order = SpecialUse.all.zipWithIndex.toMap
 
-  def mailboxes(
-    userId: UUID
-  ): IO[List[MailboxDto]] =
+  def mailboxes(userId: UUID): IO[List[MailboxDto]] =
     mail.ensureDefaults(userId) *>
       mail.mailboxDtos(userId).map(_.sortBy(b => (b.specialUse.flatMap(order.get).getOrElse(100), b.name.toLowerCase)))
 
-  def list(
-    s: AuthSession,
-    mailboxId: Option[UUID],
-    q: String,
-    offset: Int,
-    limit: Int
-  ): Res[MessageListDto] =
+  def list(s: AuthSession, mailboxId: Option[UUID], q: String, offset: Int, limit: Int): Res[MessageListDto] =
     for {
       settings <- users.settings(s.user.id)
       box <- mailboxId.traverse(id => mail.mailbox(id))
@@ -82,100 +68,52 @@ final class MailService(
           val conv = settings.conversationView &&
             !box.flatten.exists(b => b.specialUse.exists(Set(SpecialUse.Drafts, SpecialUse.Sent)))
           mail.list(s.user.id, mailboxId, MailQuery.parse(q), conv, offset, limit, Op.zone(s.user.timezone))
-            .map(
-              (
-                rows,
-                total
-              ) =>
-                Right(MessageListDto(
-                  rows.map(
-                    (
-                      m,
-                      n
-                    ) => summary(m, n)
-                  ),
-                  total,
-                  offset
-                ))
+            .map((rows, total) =>
+              Right(MessageListDto(
+                rows.map((m, n) => summary(m, n)),
+                total,
+                offset
+              ))
             )
       }
     } yield r
 
-  def load(
-    userId: UUID,
-    id: UUID
-  ): Res[(MsgMeta, Array[Byte])] =
+  def load(userId: UUID, id: UUID): Res[(MsgMeta, Array[Byte])] =
     mail.find(userId, id).flatMap {
       case None => IO.pure(Left(AppError(ErrorCode.MessageNotFound)))
       case Some(m) => blobs.get(m.blobId).map(_.toRight(AppError(ErrorCode.MessageBodyNotFound)).map(m -> _))
     }
 
-  private def partPath(
-    p: List[Int]
-  ): String = p.mkString(".")
+  private def partPath(p: List[Int]): String = p.mkString(".")
 
   /** HTML の部品を無害化する（cid: の画像はこのサーバーの URL に）。 */
-  private def sanitized(
-    m: MsgMeta,
-    raw: Array[Byte],
-    leaves: List[(List[Int], MimePart)],
-    images: Boolean
-  ): Option[(String, Boolean)] =
-    leaves.find(
-      (
-        _,
-        p
-      ) => p.mimeType == "text/html" && !p.isAttachment
-    ).map {
-      (
-        _,
-        p
-      ) =>
+  private def sanitized(m: MsgMeta,
+                        raw: Array[Byte],
+                        leaves: List[(List[Int], MimePart)],
+                        images: Boolean): Option[(String, Boolean)] =
+    leaves.find((_, p) => p.mimeType == "text/html" && !p.isAttachment).map {
+      (_, p) =>
         {
           val cid = (c: String) =>
-            leaves.find(_._2.contentId.contains(c)).map(
-              (
-                path,
-                _
-              ) => s"/api/messages/${m.id}/parts/${partPath(path)}"
-            )
+            leaves.find(_._2.contentId.contains(c)).map((path, _) => s"/api/messages/${m.id}/parts/${partPath(path)}")
           Html.sanitize(Mime.text(raw, p), cid, images)
         }
     }
 
   /** HTML の本文（無害化済み）。images=false なら外部の画像は読み込まない。 */
   /** 戻り値は（HTML、外部の画像があるか、外部の画像を許したか）。 */
-  def html(
-    userId: UUID,
-    id: UUID,
-    images: Boolean
-  ): Res[Option[(String, Boolean, Boolean)]] =
+  def html(userId: UUID, id: UUID, images: Boolean): Res[Option[(String, Boolean, Boolean)]] =
     IO.both(load(userId, id), users.settings(userId)).map {
-      (
-        r,
-        settings
-      ) =>
+      (r, settings) =>
         {
           val allow = images || settings.alwaysShowImages
-          r.map(
-            (
-              m,
-              raw
-            ) =>
-              sanitized(m, raw, Mime.parse(raw).leaves(), allow).map(
-                (
-                  h,
-                  remote
-                ) => (h, remote, allow)
-              )
+          r.map((m, raw) =>
+            sanitized(m, raw, Mime.parse(raw).leaves(), allow).map((h, remote) => (h, remote, allow))
           )
         }
     }
 
-  def detail(
-    userId: UUID,
-    id: UUID
-  ): Res[MessageDetailDto] =
+  def detail(userId: UUID, id: UUID): Res[MessageDetailDto] =
     IO.both(load(userId, id), users.settings(userId)).flatMap {
       case (Left(f), _) => IO.pure(Left(f))
       case (Right((m, raw)), settings) =>
@@ -183,39 +121,14 @@ final class MailService(
           val root = Mime.parse(raw)
           val leaves = root.leaves()
           val h = sanitized(m, raw, leaves, settings.alwaysShowImages)
-          val htmlRaw = leaves.find(
-            (
-              _,
-              p
-            ) => p.mimeType == "text/html" && !p.isAttachment
-          ).map(
-            (
-              _,
-              p
-            ) => Mime.text(raw, p)
+          val htmlRaw = leaves.find((_, p) => p.mimeType == "text/html" && !p.isAttachment).map((_, p) =>
+            Mime.text(raw, p)
           ).getOrElse("")
-          val text = leaves.find(
-            (
-              _,
-              p
-            ) => p.mimeType == "text/plain" && !p.isAttachment
-          ).map(
-            (
-              _,
-              p
-            ) => Mime.text(raw, p)
-          )
-            .getOrElse(if htmlRaw.nonEmpty then Html.toText(htmlRaw) else "")
-          val atts = leaves.filter(
-            (
-              _,
-              p
-            ) => p.isAttachment || (p.contentId.isDefined && p.mainType == "image")
-          ).map {
-            (
-              path,
-              p
-            ) =>
+          val text =
+            leaves.find((_, p) => p.mimeType == "text/plain" && !p.isAttachment).map((_, p) => Mime.text(raw, p))
+              .getOrElse(if htmlRaw.nonEmpty then Html.toText(htmlRaw) else "")
+          val atts = leaves.filter((_, p) => p.isAttachment || (p.contentId.isDefined && p.mainType == "image")).map {
+            (path, p) =>
               {
                 val size = if p.encoding == "base64" then p.size * 3 / 4 else p.size
                 val inline = p.contentId.exists(c => htmlRaw.contains(s"cid:$c"))
@@ -229,9 +142,8 @@ final class MailService(
                 )
               }
           }
-          def hl(
-            n: String
-          ) = root.header(n).toList.flatMap(Address.parseList).map(a => AddrDto(a.nameDecoded, a.address))
+          def hl(n: String) =
+            root.header(n).toList.flatMap(Address.parseList).map(a => AddrDto(a.nameDecoded, a.address))
           Right(MessageDetailDto(
             summary(m),
             hl("Cc"),
@@ -248,24 +160,16 @@ final class MailService(
             root.header("List-Unsubscribe"),
             box.map(_.name).getOrElse(""),
             // 会議の招待（iCalendar）を含むか（画面が招待のカードを出す）
-            hasInvite = root.leaves().exists(
-              (
-                _,
-                p
-              ) =>
-                p.mimeType == "text/calendar" || p.mimeType == "application/ics" ||
-                  p.filename.exists(_.toLowerCase.endsWith(".ics"))
+            hasInvite = root.leaves().exists((_, p) =>
+              p.mimeType == "text/calendar" || p.mimeType == "application/ics" ||
+                p.filename.exists(_.toLowerCase.endsWith(".ics"))
             )
           ))
         }
     }
 
   /** スレッド（開いたメッセージの会話）。markRead なら未読を既読にする。 */
-  def thread(
-    userId: UUID,
-    id: UUID,
-    markRead: Boolean
-  ): Res[ThreadDto] =
+  def thread(userId: UUID, id: UUID, markRead: Boolean): Res[ThreadDto] =
     mail.find(userId, id).flatMap {
       case None => IO.pure(Left(AppError(ErrorCode.MessageNotFound)))
       case Some(m) =>
@@ -293,22 +197,12 @@ final class MailService(
         ))
     }
 
-  def raw(
-    userId: UUID,
-    id: UUID
-  ): Res[(MsgMeta, Array[Byte])] = load(userId, id)
+  def raw(userId: UUID, id: UUID): Res[(MsgMeta, Array[Byte])] = load(userId, id)
 
   /** 添付ファイル（部品番号 1.2 など）の中身。 */
-  def part(
-    userId: UUID,
-    id: UUID,
-    path: String
-  ): Res[(String, String, Array[Byte])] =
+  def part(userId: UUID, id: UUID, path: String): Res[(String, String, Array[Byte])] =
     load(userId, id).map(_.flatMap {
-      (
-        _,
-        raw
-      ) =>
+      (_, raw) =>
         {
           val nums = path.split('.').toList.flatMap(_.toIntOption)
           val root = Mime.parse(raw)
@@ -319,10 +213,7 @@ final class MailService(
     })
 
   /** まとめての変更（既読・スター・移動・迷惑メールの報告・削除）。 */
-  def update(
-    userId: UUID,
-    r: UpdateMessagesReq
-  ): Res[Int] = {
+  def update(userId: UUID, r: UpdateMessagesReq): Res[Int] = {
     val ids = r.ids.distinct.take(1000)
     for {
       metas <- mail.findMany(userId, ids)
@@ -377,10 +268,7 @@ final class MailService(
     } yield Right(found.size)
   }
 
-  def emptyMailbox(
-    userId: UUID,
-    boxId: UUID
-  ): Res[Int] =
+  def emptyMailbox(userId: UUID, boxId: UUID): Res[Int] =
     mail.mailbox(boxId).flatMap {
       case Some(b) if b.userId == userId && b.specialUse.exists(u => u == SpecialUse.Trash || u == SpecialUse.Junk) =>
         mail.emptyMailbox(boxId).flatTap(_ => changed(userId)).map(Right(_))
@@ -392,11 +280,7 @@ final class MailService(
 
   /** 保存の容量（使っている分 + まだ使っていないアップロード + extra が上限以内か）。HTTP からの保存も、受信・IMAP と同じく容量を守る。 */
   /** 下書き・送信では、添付が本文に入るのでアップロードの分は数えない（二重に数えない）。 */
-  private def withinQuota(
-    userId: UUID,
-    extra: Long,
-    countUploads: Boolean = false
-  ): IO[Boolean] =
+  private def withinQuota(userId: UUID, extra: Long, countUploads: Boolean = false): IO[Boolean] =
     (
       mail.quota(userId, mcfg.defaultQuotaBytes),
       if countUploads then mail.pendingUploads(userId) else IO.pure((0L, 0L))
@@ -407,17 +291,9 @@ final class MailService(
   private val OverQuota = AppError(ErrorCode.QuotaExceeded)
   private val MaxPendingUploads = 100
 
-  def upload(
-    userId: UUID,
-    filename: String,
-    ct: String,
-    bytes: Array[Byte]
-  ): Res[UploadDto] =
+  def upload(userId: UUID, filename: String, ct: String, bytes: Array[Byte]): Res[UploadDto] =
     mail.pendingUploads(userId).flatMap {
-      (
-        count,
-        _
-      ) =>
+      (count, _) =>
         if count >= MaxPendingUploads then IO.pure(Left(AppError(ErrorCode.PendingUploadsTooMany)))
         else
           withinQuota(userId, bytes.length.toLong, countUploads = true).flatMap {
@@ -429,16 +305,9 @@ final class MailService(
     }
 
   /** 返信・全員に返信・転送の初期値。 */
-  def template(
-    s: AuthSession,
-    id: UUID,
-    mode: String
-  ): Res[ComposeTemplateDto] =
+  def template(s: AuthSession, id: UUID, mode: String): Res[ComposeTemplateDto] =
     IO.both(detail(s.user.id, id), domains.sendable(s.user.id)).map {
-      (
-        d,
-        mine
-      ) =>
+      (d, mine) =>
         d.map { m =>
           val myAddrs = mine.toSet
           val toMe = (m.summary.to ++ m.cc).map(_.address.toLowerCase).find(myAddrs.contains)
@@ -482,14 +351,10 @@ final class MailService(
         }
     }
 
-  private def fmt(
-    a: AddrDto
-  ): String = MailText.quoted(a.name, a.address)
+  private def fmt(a: AddrDto): String = MailText.quoted(a.name, a.address)
 
   /** 宛先の文字列（"名前 <addr>"・カンマ区切り）をアドレスにする。 */
-  private def parseRcpts(
-    xs: List[String]
-  ): Either[AppError, List[MailAddress]] = {
+  private def parseRcpts(xs: List[String]): Either[AppError, List[MailAddress]] = {
     val all = xs.flatMap(x => Address.parseList(x))
     all.find(a => !Address.valid(Address.toAscii(a.address))) match {
       case Some(bad) => Left(AppError(ErrorCode.RecipientAddressInvalid, s"宛先のアドレスが正しくありません: ${bad.address}"))
@@ -498,20 +363,14 @@ final class MailService(
   }
 
   /** 送るメッセージを組み立てる（下書きの保存にも使う）。 */
-  private def build(
-    s: AuthSession,
-    r: ComposeReq
-  ): Res[(Array[Byte], List[MailAddress], List[MailAddress], List[MailAddress], MailAddress, Option[MsgMeta])] =
+  private def build(s: AuthSession, r: ComposeReq)
+    : Res[(Array[Byte], List[MailAddress], List[MailAddress], List[MailAddress], MailAddress, Option[MsgMeta])] =
     (
       domains.sendable(s.user.id),
       mail.uploads(s.user.id, r.uploadIds),
       r.inReplyTo.orElse(r.forwardOf).flatTraverse(id => mail.find(s.user.id, id))
     ).tupled.flatMap {
-      (
-        mine,
-        ups,
-        orig
-      ) =>
+      (mine, ups, orig) =>
         {
           val from = r.from.trim.toLowerCase
           (for {
@@ -536,10 +395,7 @@ final class MailService(
                 upFiles <-
                   ups.traverse(u => blobs.get(u.blobId).map(_.map(b => Attachment(u.filename, u.contentType, b))))
                 fwdFiles <- r.forwardOf.flatTraverse(id => raw(s.user.id, id).map(_.toOption)).map(_.toList.flatMap {
-                  (
-                    _,
-                    raw0
-                  ) =>
+                  (_, raw0) =>
                     Mime.parse(raw0).leaves().map(_._2).filter(_.isAttachment).map(p =>
                       Attachment(p.filename.getOrElse("attachment"), p.mimeType, Mime.content(raw0, p))
                     )
@@ -581,18 +437,11 @@ final class MailService(
     }
 
   /** Bcc を付けたもの（送信済み・下書きに残す控え）。 */
-  private def withBcc(
-    raw: Array[Byte],
-    bcc: List[MailAddress]
-  ): Array[Byte] =
+  private def withBcc(raw: Array[Byte], bcc: List[MailAddress]): Array[Byte] =
     if bcc.isEmpty then raw
     else (s"Bcc: ${bcc.map(_.address).mkString(", ")}\r\n").getBytes(StandardCharsets.ISO_8859_1) ++ raw
 
-  def send(
-    s: AuthSession,
-    r: ComposeReq,
-    ip: String
-  ): Res[SentDto] =
+  def send(s: AuthSession, r: ComposeReq, ip: String): Res[SentDto] =
     build(s, r).flatMap {
       case Left(f) => IO.pure(Left(f))
       case Right((bytes, to, cc, bcc, from, orig)) =>
@@ -643,12 +492,7 @@ final class MailService(
   // ---------------------------------------------------------------- 予約送信・送信の取り消し
 
   /** 送信を予約する（sendAt がなければ、設定の取り消しの猶予の後）。中身は今確かめて、宛先の誤りなどはすぐに返す。 */
-  def schedule(
-    s: AuthSession,
-    r: ComposeReq,
-    sendAt: Option[Instant],
-    ip: String
-  ): Res[ScheduledDto] =
+  def schedule(s: AuthSession, r: ComposeReq, sendAt: Option[Instant], ip: String): Res[ScheduledDto] =
     IO.realTimeInstant.flatMap { now =>
       if sendAt.exists(_.isAfter(now.plusSeconds(366L * 24 * 3600))) then
         IO.pure(Left(AppError(ErrorCode.ScheduleTooFar)))
@@ -682,11 +526,7 @@ final class MailService(
 
   // ---------------------------------------------------------------- スヌーズ
 
-  def snooze(
-    userId: UUID,
-    ids: List[UUID],
-    until: Option[Instant]
-  ): Res[Int] =
+  def snooze(userId: UUID, ids: List[UUID], until: Option[Instant]): Res[Int] =
     IO.realTimeInstant.flatMap { now =>
       if until.exists(!_.isAfter(now)) then IO.pure(Left(AppError(ErrorCode.SnoozeInPast)))
       else mail.snooze(userId, ids.take(1000), until).flatTap(_ => changed(userId)).map(Right(_))
@@ -695,10 +535,7 @@ final class MailService(
   /** 時刻が来たスヌーズを戻す（定期処理から呼ぶ）。 */
   def wakeSnoozed: IO[Unit] = mail.wakeSnoozed().flatMap(_.traverse_(changed))
 
-  def saveDraft(
-    s: AuthSession,
-    r: ComposeReq
-  ): Res[DraftSavedDto] =
+  def saveDraft(s: AuthSession, r: ComposeReq): Res[DraftSavedDto] =
     build(
       s,
       r.copy(to = r.to.filter(_.trim.nonEmpty), cc = r.cc.filter(_.trim.nonEmpty), bcc = r.bcc.filter(_.trim.nonEmpty))
@@ -727,10 +564,7 @@ final class MailService(
     }
 
   /** 下書きを開く（作成画面に戻す）。 */
-  def draft(
-    s: AuthSession,
-    id: UUID
-  ): Res[ComposeReq] =
+  def draft(s: AuthSession, id: UUID): Res[ComposeReq] =
     detail(s.user.id, id).map(_.map { d =>
       ComposeReq(
         d.summary.from.map(_.address).getOrElse(""),

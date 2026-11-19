@@ -20,12 +20,11 @@ import skereru.storage.Blobs
  * ほかのサービス（Gmail など）からのメールの取り込み。
  * ほかのサービスのパスワードを預かる・大量のメールを書き込むので、画面（Cookie のセッション）からだけ受け付ける。
  */
-final class ImportRoutes(
-  importer: Importer,
-  store: ImportStore,
-  mail: MailStore,
-  blobs: Blobs,
-  val sessions: SessionAuth) extends RouteSupport {
+final class ImportRoutes(importer: Importer,
+                         store: ImportStore,
+                         mail: MailStore,
+                         blobs: Blobs,
+                         val sessions: SessionAuth) extends RouteSupport {
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     // 書き出し（mbox）。mailboxId がなければすべてのメールボックス。フォルダ・スター・未読は X-Gmail-Labels に書く（取り込みで戻せる）
@@ -38,9 +37,7 @@ final class ImportRoutes(
     case req @ POST -> Root / "api" / "imports" / UuidVar(id) / "cancel" => postImportCancel(req, id)
   }
 
-  private def getExport(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def getExport(req: Request[IO]): IO[Response[IO]] =
     sessionOnly(req)(s =>
       mail.mailboxes(s.user.id).flatMap { all =>
         val id = param(req, "mailboxId")
@@ -60,14 +57,10 @@ final class ImportRoutes(
       }
     )
 
-  private def getImports(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def getImports(req: Request[IO]): IO[Response[IO]] =
     sessionOnly(req)(s => store.list(s.user.id).flatMap(Ok(_)))
 
-  private def postImportsImap(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def postImportsImap(req: Request[IO]): IO[Response[IO]] =
     sessionOnly(req)(s =>
       body[ImapImportReq](req) { r =>
         importer.startImap(s.user.id, ImapSource(r.host, r.port, r.user, r.password)).flatMap {
@@ -77,9 +70,7 @@ final class ImportRoutes(
       }
     )
 
-  private def postImportsFile(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def postImportsFile(req: Request[IO]): IO[Response[IO]] =
     sessionOnly(req)(s =>
       body[FileImportReq](req) { r =>
         val name = r.name.trim.filterNot(_ < 0x20).take(200)
@@ -92,10 +83,7 @@ final class ImportRoutes(
       }
     )
 
-  private def postImportMessages(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def postImportMessages(req: Request[IO], id: UUID): IO[Response[IO]] =
     sessionOnly(req)(s =>
       req.body.compile.to(Array).flatMap { bytes =>
         importer.importBatch(
@@ -111,10 +99,7 @@ final class ImportRoutes(
       }
     )
 
-  private def postImportFinish(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def postImportFinish(req: Request[IO], id: UUID): IO[Response[IO]] =
     sessionOnly(req)(s =>
       store.find(s.user.id, id).flatMap {
         case Some(j) if j.kind == "file" => store.finish(id, "done", None) *> Ok(UpdatedDto(1))
@@ -122,28 +107,18 @@ final class ImportRoutes(
       }
     )
 
-  private def postImportCancel(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def postImportCancel(req: Request[IO], id: UUID): IO[Response[IO]] =
     sessionOnly(req)(s => store.cancel(s.user.id, id).flatMap(n => Ok(UpdatedDto(n))))
 
   /** メールボックスのメッセージを mbox（mboxrd）で流す。ページごとに読むので、大きくてもメモリを使い切らない。 */
-  private def mbox(
-    boxes: List[Mailbox]
-  ): Stream[IO, Byte] =
+  private def mbox(boxes: List[Mailbox]): Stream[IO, Byte] =
     Stream.emits(boxes).flatMap { b =>
       Stream.unfoldLoopEval(0L)(after =>
         mail.exportPage(b.id, after, 200).map(rows => (rows, rows.lastOption.map(_._1).filter(_ => rows.size == 200)))
       )
         .flatMap(Stream.emits)
         .evalMap {
-          (
-            _,
-            blobId,
-            flags,
-            date
-          ) =>
+          (_, blobId, flags, date) =>
             blobs.get(blobId).map(_.map(raw =>
               MailExport.entry(
                 raw,

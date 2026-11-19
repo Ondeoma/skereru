@@ -11,10 +11,7 @@ import sbirds.auth.Crypto
 import java.time.Instant
 
 /** OIDCプロバイダ向けクライアント（Authorization Code + PKCE）。 */
-final class OidcClient private (
-  cfg: OidcConfig,
-  http: Client[IO],
-  meta: Ref[IO, Option[ProviderMetadata]]) {
+final class OidcClient private (cfg: OidcConfig, http: Client[IO], meta: Ref[IO, Option[ProviderMetadata]]) {
 
   private def discover: IO[ProviderMetadata] = meta.get.flatMap {
     case Some(m) => IO.pure(m)
@@ -38,11 +35,7 @@ final class OidcClient private (
       }
   }
 
-  def authorizationUri(
-    state: String,
-    verifier: String,
-    nonce: String
-  ): IO[Uri] =
+  def authorizationUri(state: String, verifier: String, nonce: String): IO[Uri] =
     discover.map { m =>
       m.authorizationEndpoint.withQueryParams(
         Map(
@@ -59,12 +52,7 @@ final class OidcClient private (
     }
 
   /** 認可コードをIDトークンに交換し、検証済みの Identity を返す。 */
-  def authenticate(
-    code: String,
-    verifier: String,
-    nonce: String,
-    now: Instant
-  ): IO[Identity] =
+  def authenticate(code: String, verifier: String, nonce: String, now: Instant): IO[Identity] =
     for {
       m <- discover
       req = Request[IO](Method.POST, m.tokenEndpoint).withEntity(
@@ -85,10 +73,7 @@ final class OidcClient private (
     } yield id.copy(idToken = Some(idToken))
 
   /** IdP からもログアウトする URL（end_session_endpoint がなければ None）. */
-  def logoutUri(
-    idToken: Option[String],
-    postLogout: String
-  ): IO[Option[Uri]] =
+  def logoutUri(idToken: Option[String], postLogout: String): IO[Option[Uri]] =
     discover.attempt.map(_.toOption.flatMap(_.endSessionEndpoint).map { e =>
       e.withQueryParams(Map("post_logout_redirect_uri" -> postLogout, "client_id" -> cfg.clientId) ++
         idToken.map("id_token_hint" -> _))
@@ -96,9 +81,6 @@ final class OidcClient private (
 }
 
 object OidcClient {
-  def create(
-    cfg: OidcConfig,
-    http: Client[IO]
-  ): IO[OidcClient] =
+  def create(cfg: OidcConfig, http: Client[IO]): IO[OidcClient] =
     Ref.of[IO, Option[ProviderMetadata]](None).map(new OidcClient(cfg, http, _))
 }

@@ -3,21 +3,11 @@ package skereru.core
 import scala.collection.mutable.ArrayBuffer
 
 /** シーケンス集合（1:3,5,7:*）。-1 は「*」（最大の番号）。 */
-final case class SeqSet(
-  ranges: List[(Long, Long)]) {
-  private def resolve(
-    n: Long,
-    max: Long
-  ) = if n == -1 then max else n
+final case class SeqSet(ranges: List[(Long, Long)]) {
+  private def resolve(n: Long, max: Long) = if n == -1 then max else n
 
-  def contains(
-    n: Long,
-    max: Long
-  ): Boolean = ranges.exists {
-    (
-      a0,
-      b0
-    ) =>
+  def contains(n: Long, max: Long): Boolean = ranges.exists {
+    (a0, b0) =>
       {
         val a = resolve(a0, max); val b = resolve(b0, max)
         n >= math.min(a, b) && n <= math.max(a, b)
@@ -25,13 +15,8 @@ final case class SeqSet(
   }
 
   /** 最大値までの番号の範囲（DB の問い合わせ用）。 */
-  def bounds(
-    max: Long
-  ): List[(Long, Long)] = ranges.map {
-    (
-      a0,
-      b0
-    ) =>
+  def bounds(max: Long): List[(Long, Long)] = ranges.map {
+    (a0, b0) =>
       {
         val a = resolve(a0, max); val b = resolve(b0, max)
         (math.min(a, b), math.max(a, b))
@@ -39,23 +24,14 @@ final case class SeqSet(
   }
 
   /** 「*」を含むか（UID の範囲で、最大の UID を必ず含めるため）。 */
-  def hasStar: Boolean = ranges.exists(
-    (
-      a,
-      b
-    ) => a == -1 || b == -1
-  )
+  def hasStar: Boolean = ranges.exists((a, b) => a == -1 || b == -1)
 }
 
 object SeqSet {
   val MaxRanges = 2000
-  def parse(
-    s: String
-  ): SeqSet = {
+  def parse(s: String): SeqSet = {
     if s.isEmpty then throw ImapSyntax("sequence set is empty")
-    def num(
-      x: String
-    ): Long =
+    def num(x: String): Long =
       if x == "*" then -1
       else x.toLongOption.filter(_ > 0).getOrElse(throw ImapSyntax(s"invalid sequence number: $x"))
     // 範囲の数に上限を付ける（1,3,5,… を並べて、判定や SQL を巨大にさせない）
@@ -70,9 +46,7 @@ object SeqSet {
   }
 
   /** UID の並びを短く書く（1:3,5）。 */
-  def format(
-    nums: Seq[Long]
-  ): String =
+  def format(nums: Seq[Long]): String =
     if nums.isEmpty then ""
     else {
       val sorted = nums.distinct.sorted

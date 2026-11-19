@@ -16,36 +16,25 @@ import java.time.Instant
 import java.util.UUID
 
 /** 配送（受け取ったメッセージを宛先のメールボックスに入れる・外へ送る）。 */
-final class Delivery(
-  mail: MailStore,
-  domains: DomainStore,
-  users: UserStore,
-  queue: QueueStore,
-  blobs: skereru.storage.Blobs,
-  spam: SpamFilter,
-  signer: Signer,
-  cfg: MailConfig,
-  log: String => Unit,
-  notify: UUID => IO[Unit]) {
+final class Delivery(mail: MailStore,
+                     domains: DomainStore,
+                     users: UserStore,
+                     queue: QueueStore,
+                     blobs: skereru.storage.Blobs,
+                     spam: SpamFilter,
+                     signer: Signer,
+                     cfg: MailConfig,
+                     log: String => Unit,
+                     notify: UUID => IO[Unit]) {
 
   /** DMARC の集計レポートを受け取ったとき（起動時に保存先をつなぐ）。 */
-  @volatile var onDmarcReport: (Array[Byte], Boolean) => IO[Unit] = (
-    _,
-    _
-  ) => IO.unit
+  @volatile var onDmarcReport: (Array[Byte], Boolean) => IO[Unit] = (_, _) => IO.unit
 
   /** 受信トレイに新しいメールが届いたとき（ユーザー・メッセージ・解析した本文. 起動時にプッシュ通知をつなぐ）。待たずに裏で動かす。 */
-  @volatile var onInboxMail: (UUID, UUID, MimePart) => IO[Unit] = (
-    _,
-    _,
-    _
-  ) => IO.unit
+  @volatile var onInboxMail: (UUID, UUID, MimePart) => IO[Unit] = (_, _, _) => IO.unit
 
   /** アドレスが配送先として存在するか（+tag・キャッチオールも見る）。転送先は再帰的にたどる。 */
-  def resolve(
-    rcpt: String,
-    depth: Int = 0
-  ): IO[Option[Target]] = {
+  def resolve(rcpt: String, depth: Int = 0): IO[Option[Target]] = {
     val a = rcpt.toLowerCase
     domains.address(a).flatMap {
       case Some(r) => Some(r).pure[IO]
@@ -69,37 +58,24 @@ final class Delivery(
     }
   }
 
-  def isLocalDomain(
-    d: String
-  ): IO[Boolean] = domains.isLocalDomain(d)
+  def isLocalDomain(d: String): IO[Boolean] = domains.isLocalDomain(d)
 
   /** 受信の前に足すヘッダー。 */
-  private def received(
-    env: Envelope,
-    rdns: Option[String],
-    proto: String,
-    forRcpt: Option[String]
-  ): String = {
+  private def received(env: Envelope, rdns: Option[String], proto: String, forRcpt: Option[String]): String = {
     val from =
       s"${env.helo.take(100).replaceAll("[^A-Za-z0-9.\\-\\[\\]:]", "")} (${rdns.getOrElse("unknown")} [${env.ip.getHostAddress}])"
     s"Received: from $from\r\n\tby ${cfg.hostname} (skereru) with $proto\r\n\t${forRcpt.fold("")(r => s"for <$r>")}; ${Dates.rfc5322(Instant.now(), cfg.zone)}\r\n"
   }
 
   /** 外から受け取ったメッセージ（ポート25）。迷惑メールの判定をして、宛先のユーザーに配る。 */
-  def inbound(
-    env: Envelope,
-    raw0: Array[Byte]
-  ): IO[InboundResult] =
+  def inbound(env: Envelope, raw0: Array[Byte]): IO[InboundResult] =
     Telemetry.span("mail.inbound", "mail.rcpts" -> env.rcpts.size.toString)(inboundImpl(env, raw0)).flatTap {
       case InboundResult.Accepted(_) => IO.unit // 配った結果（delivered・junk）は inboundImpl で数える
       case InboundResult.Rejected(_, _) => Metrics.count("skereru.mail.received", "result" -> "rejected")
       case InboundResult.TempFail(_, _) => Metrics.count("skereru.mail.received", "result" -> "tempfail")
     }
 
-  private def inboundImpl(
-    env: Envelope,
-    raw0: Array[Byte]
-  ): IO[InboundResult] = {
+  private def inboundImpl(env: Envelope, raw0: Array[Byte]): IO[InboundResult] = {
     val root0 = Mime.parse(raw0)
     // 転送が回り続けているメール（Received が多すぎる）は受け取らない
     if root0.headerAll("Received").size > Delivery.MaxHops then
@@ -185,14 +161,10 @@ final class Delivery(
   // 判定に使うローカルのドメインの一覧（毎回 DB を引かないよう同期的に持つ）
   @volatile private var localDomains: Set[String] = Set.empty
   def refreshDomains: IO[Unit] = domains.domains.map(ds => localDomains = ds.filter(_.enabled).map(_.name).toSet)
-  private def isLocal(
-    d: String
-  ): Boolean = localDomains.contains(d.toLowerCase)
+  private def isLocal(d: String): Boolean = localDomains.contains(d.toLowerCase)
 
   /** 外から来たメッセージにあると紛らわしいヘッダー（自分が付ける判定結果）を取り除く。 */
-  private def stripSpoofable(
-    raw: Array[Byte]
-  ): Array[Byte] = {
+  private def stripSpoofable(raw: Array[Byte]): Array[Byte] = {
     val bad = Set("x-spam-score", "x-spam-status", "x-skereru-auth")
     // 自分のホスト名を名乗る Authentication-Results も取り除く（RFC 8601 5章）
     RawHeaders.filter(raw)(h =>
@@ -203,29 +175,25 @@ final class Delivery(
   }
 
   /** ユーザーのメールボックスに入れる（許可・拒否の差出人、振り分けの規則、自動返信、容量）。 */
-  def deliverToUsers(
-    userIds: List[UUID],
-    raw: Array[Byte],
-    blobId: String,
-    spamRes: Option[SpamFilter#Result],
-    mailFrom: String,
-    junk: Boolean,
-    envelopeTo: List[String] = Nil
-  ): IO[List[(UUID, Either[String, UUID])]] =
+  def deliverToUsers(userIds: List[UUID],
+                     raw: Array[Byte],
+                     blobId: String,
+                     spamRes: Option[SpamFilter#Result],
+                     mailFrom: String,
+                     junk: Boolean,
+                     envelopeTo: List[String] = Nil): IO[List[(UUID, Either[String, UUID])]] =
     Telemetry.span(
       "mail.deliver",
       "mail.users" -> userIds.distinct.size.toString
     )(deliverToUsersImpl(userIds, raw, blobId, spamRes, mailFrom, junk, envelopeTo))
 
-  private def deliverToUsersImpl(
-    userIds: List[UUID],
-    raw: Array[Byte],
-    blobId: String,
-    spamRes: Option[SpamFilter#Result],
-    mailFrom: String,
-    junk: Boolean,
-    envelopeTo: List[String]
-  ): IO[List[(UUID, Either[String, UUID])]] = {
+  private def deliverToUsersImpl(userIds: List[UUID],
+                                 raw: Array[Byte],
+                                 blobId: String,
+                                 spamRes: Option[SpamFilter#Result],
+                                 mailFrom: String,
+                                 junk: Boolean,
+                                 envelopeTo: List[String]): IO[List[(UUID, Either[String, UUID])]] = {
     val root = Mime.parse(raw)
     val from = root.header("From").flatMap(Address.parseOne).map(_.address.toLowerCase).getOrElse(mailFrom.toLowerCase)
     userIds.distinct.traverse { uid =>
@@ -311,13 +279,11 @@ final class Delivery(
   }
 
   /** 振り分けの規則の転送（ユーザーの1時間の送信数の上限に含める。乗っ取られたアカウントの踏み台にさせない）。 */
-  private def ruleForward(
-    uid: UUID,
-    mailFrom: String,
-    to: List[String],
-    raw: Array[Byte],
-    auth: Option[String]
-  ): IO[Unit] =
+  private def ruleForward(uid: UUID,
+                          mailFrom: String,
+                          to: List[String],
+                          raw: Array[Byte],
+                          auth: Option[String]): IO[Unit] =
     queue.recentRecipients(uid).flatMap { n =>
       if n + to.size > cfg.maxRecipientsPerHour then
         IO(log(s"[deliver] forward skipped: user $uid is over the hourly limit"))
@@ -336,13 +302,11 @@ final class Delivery(
     }
 
   /** 転送（エンベロープの差出人は転送したアドレス。bounce は空のまま）。 */
-  private def forward(
-    via: String,
-    mailFrom: String,
-    to: List[String],
-    raw: Array[Byte],
-    auth: Option[String] = None
-  ): IO[Unit] = {
+  private def forward(via: String,
+                      mailFrom: String,
+                      to: List[String],
+                      raw: Array[Byte],
+                      auth: Option[String] = None): IO[Unit] = {
     val sender = if mailFrom.isEmpty then "" else via
     signer.arcSeal(raw, Address.domainOf(via), auth, cfg.hostname).flatMap(withArc =>
       blobs.put(withArc).flatMap(id => queue.enqueue(None, sender, to.take(20), id))
@@ -352,12 +316,7 @@ final class Delivery(
   private val DkimPass = """^pass \(d=([^)\s]+)\)""".r
 
   /** 不在の自動返信（同じ相手には4日に1回。自動送信・メーリングリスト・bounce には返さない）。 */
-  private def vacation(
-    uid: UUID,
-    s: MailSettingsDto,
-    root: MimePart,
-    mailFrom: String
-  ): IO[Unit] = {
+  private def vacation(uid: UUID, s: MailSettingsDto, root: MimePart, mailFrom: String): IO[Unit] = {
     val v = s.vacation
     val today = java.time.LocalDate.now(cfg.zone).toString
     val inPeriod = v.startDate.forall(_ <= today) && v.endDate.forall(_ >= today)
@@ -405,14 +364,12 @@ final class Delivery(
    * 認証したユーザーが送る（SMTP の submission・画面・API）。From は自分のアドレスに限る。
    * 戻り値は (このサーバーの宛先に配った数, 外への送信待ちにした数)。
    */
-  def submit(
-    user: User,
-    mailFrom: String,
-    rcpts: List[String],
-    raw0: Array[Byte],
-    via: String,
-    ip: Option[String]
-  ): IO[Either[String, (Int, Int)]] =
+  def submit(user: User,
+             mailFrom: String,
+             rcpts: List[String],
+             raw0: Array[Byte],
+             via: String,
+             ip: Option[String]): IO[Either[String, (Int, Int)]] =
     Telemetry.span(
       "mail.submit",
       "mail.via" -> via,
@@ -426,14 +383,12 @@ final class Delivery(
         )
       )
 
-  private def submitImpl(
-    user: User,
-    mailFrom: String,
-    rcpts: List[String],
-    raw0: Array[Byte],
-    via: String,
-    ip: Option[String]
-  ): IO[Either[String, (Int, Int)]] = {
+  private def submitImpl(user: User,
+                         mailFrom: String,
+                         rcpts: List[String],
+                         raw0: Array[Byte],
+                         via: String,
+                         ip: Option[String]): IO[Either[String, (Int, Int)]] = {
     val root = Mime.parse(raw0)
     val fromAddrs = root.header("From").toList.flatMap(Address.parseList).map(_.address.toLowerCase)
     for {
@@ -470,12 +425,7 @@ final class Delivery(
               signed <- signer.sign(withHead)
               id <- blobs.put(signed)
               split <- rcpts.distinct.traverse(r => isLocalDomain(Address.domainOf(r)).map(r -> _))
-              (local, remote) = split.partitionMap(
-                (
-                  r,
-                  l
-                ) => if l then Left(r) else Right(r)
-              )
+              (local, remote) = split.partitionMap((r, l) => if l then Left(r) else Right(r))
               targets <- local.traverse(r => resolve(r).map(r -> _))
               missing = targets.collect { case (r, None) => r }
               delivered <- targets.flatMap(_._2.toList).traverse(t =>
@@ -499,17 +449,11 @@ final class Delivery(
     } yield res
   }
 
-  private def removeHeader(
-    raw: Array[Byte],
-    name: String
-  ): Array[Byte] = RawHeaders.filter(raw)(!_.name.equalsIgnoreCase(name))
+  private def removeHeader(raw: Array[Byte], name: String): Array[Byte] =
+    RawHeaders.filter(raw)(!_.name.equalsIgnoreCase(name))
 
   /** 配送できなかったことを差出人に知らせる（このサーバーのユーザーなら直接、外なら送信待ちに）。 */
-  def bounceToSender(
-    sender: String,
-    original: Array[Byte],
-    failed: List[(String, String)]
-  ): IO[Unit] =
+  def bounceToSender(sender: String, original: Array[Byte], failed: List[(String, String)]): IO[Unit] =
     if sender.isEmpty then IO.unit
     else {
       val pm = MailAddress(Some("Mail Delivery System"), "MAILER-DAEMON", cfg.hostname)
@@ -534,17 +478,13 @@ object Delivery {
   val MaxHops = 50
 
   /** 認証の結果（"pass (d=…)" など）の最初の語（メトリクスの属性）。 */
-  private[mail] def word(
-    s: String
-  ): String = s.trim.takeWhile(c => !c.isWhitespace && c != '(').toLowerCase match {
+  private[mail] def word(s: String): String = s.trim.takeWhile(c => !c.isWhitespace && c != '(').toLowerCase match {
     case "" => "none"
     case w => w
   }
 
   /** 迷惑メールとして拒否した主な理由（メトリクスの属性）。 */
-  private[mail] def rejectReason(
-    v: SpamVerdict
-  ): String = {
+  private[mail] def rejectReason(v: SpamVerdict): String = {
     val rules = v.hits.map(_.rule).toSet
     if rules("VIRUS") then "virus"
     else if rules("DMARC_REJECT") || rules("DMARC_QUARANTINE") then "dmarc"
@@ -556,9 +496,7 @@ object Delivery {
   }
 
   /** 送信の経路（ESMTPSA・画面など）を、メトリクスの属性の少ない値にまとめる。 */
-  private[mail] def viaLabel(
-    via: String
-  ): String =
+  private[mail] def viaLabel(via: String): String =
     via.toUpperCase match {
       case v if v.startsWith("ESMTP") => "smtp"
       case "HTTPS" => "web"

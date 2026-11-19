@@ -38,12 +38,11 @@ final case class ApiConfig(
  * 認可を求める外部のサービス（OAUTH_CLIENTS で登録する）。redirectUri は完全一致で照合する。
  * scopes はそのクライアントが求めてよいスコープ（read・write・send. 既定は read だけ. admin は付けられない）。
  */
-final case class OAuthClient(
-  id: String,
-  secret: String,
-  redirectUri: String,
-  name: String,
-  scopes: List[String] = List(ApiScope.Read))
+final case class OAuthClient(id: String,
+                             secret: String,
+                             redirectUri: String,
+                             name: String,
+                             scopes: List[String] = List(ApiScope.Read))
 
 object OAuthClient {
 
@@ -55,7 +54,6 @@ object OAuthClient {
 type Res[A] = IO[Either[AppError, A]]
 
 object Op {
-  def zone(
-    tz: String
-  ): java.time.ZoneId = scala.util.Try(java.time.ZoneId.of(tz)).getOrElse(java.time.ZoneId.of("Asia/Tokyo"))
+  def zone(tz: String): java.time.ZoneId =
+    scala.util.Try(java.time.ZoneId.of(tz)).getOrElse(java.time.ZoneId.of("Asia/Tokyo"))
 }

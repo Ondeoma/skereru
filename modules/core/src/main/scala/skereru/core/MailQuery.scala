@@ -21,9 +21,7 @@ final case class MailQuery(
   snoozed: Option[Boolean] = None)
 
 object MailQuery {
-  private def size(
-    s: String
-  ): Option[Long] = {
+  private def size(s: String): Option[Long] = {
     val t = s.trim.toUpperCase
     val (num, mul) = t.lastOption match {
       case Some('K') => (t.dropRight(1), 1024L)
@@ -35,20 +33,13 @@ object MailQuery {
   }
 
   /** 語に分ける（"…" で囲めば空白を含められる）。 */
-  def tokens(
-    q: String
-  ): List[String] =
+  def tokens(q: String): List[String] =
     """(\S+:"[^"]*"|"[^"]*"|\S+)""".r.findAllIn(q).toList.map(_.replace("\"", ""))
 
-  def parse(
-    q: String
-  ): MailQuery = {
+  def parse(q: String): MailQuery = {
     val empty = MailQuery(Nil, Nil, Nil, Nil, None, None, None, None, None, None, None, None)
     tokens(q).foldLeft(empty) {
-      (
-        m,
-        t
-      ) =>
+      (m, t) =>
         {
           val i = t.indexOf(':')
           val (k, v) = if i > 0 then (t.substring(0, i).toLowerCase, t.substring(i + 1)) else ("", t)

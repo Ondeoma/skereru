@@ -16,9 +16,7 @@ object IdToken {
    * TLSサーバー認証でIssuerを検証できる場合は署名検証を省略できる。
    * 代わりに iss / aud / exp / nonce は必ず検証する。
    */
-  def decodeClaims(
-    jwt: String
-  ): Either[String, Json] =
+  def decodeClaims(jwt: String): Either[String, Json] =
     jwt.split('.') match {
       case Array(_, payload, _*) =>
         Either
@@ -28,13 +26,11 @@ object IdToken {
       case _ => Left("malformed id_token")
     }
 
-  def validate(
-    claims: Json,
-    issuer: String,
-    cfg: OidcConfig,
-    expectedNonce: String,
-    now: Instant
-  ): Either[String, Identity] = {
+  def validate(claims: Json,
+               issuer: String,
+               cfg: OidcConfig,
+               expectedNonce: String,
+               now: Instant): Either[String, Identity] = {
     val c = claims.hcursor
     for {
       iss <- c.get[String]("iss").leftMap(_ => "missing iss")

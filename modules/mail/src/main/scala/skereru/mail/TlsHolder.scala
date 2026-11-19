@@ -4,11 +4,7 @@ import java.nio.file.{Files, Path}
 import javax.net.ssl.SSLContext
 
 /** TLS の証明書（PEM）。ファイルが更新されたら読み直す（Let's Encrypt の更新に追従する）。 */
-final class TlsHolder(
-  certPath: Option[Path],
-  keyPath: Option[Path],
-  hostname: String,
-  log: String => Unit) {
+final class TlsHolder(certPath: Option[Path], keyPath: Option[Path], hostname: String, log: String => Unit) {
   @volatile private var ctx: SSLContext = load()
   @volatile private var stamp: Long = modified
 

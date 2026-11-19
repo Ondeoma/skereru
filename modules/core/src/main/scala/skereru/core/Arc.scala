@@ -12,22 +12,16 @@ final case class ArcResult(
   reason: String)
 
 /** ARC（Authenticated Received Chain、RFC 8617）の検証。DKIM の正規化・鍵の読み込みを使い回す。メッセージの改行は CRLF であること。 */
-final class Arc(
-  dns: Dns) {
+final class Arc(dns: Dns) {
 
   private val dkim = new Dkim(dns)
 
   /** 届いたメッセージの ARC の鎖を検証する（cv の値に使う）。ARC のヘッダーがなければ none。 */
-  def verify(
-    msg: Array[Byte],
-    now: java.time.Instant
-  ): ArcResult =
+  def verify(msg: Array[Byte], now: java.time.Instant): ArcResult =
     try verifyChain(msg)
     catch case e: Exception => ArcResult("fail", 0, s"検証中のエラー: ${e.getMessage}")
 
-  private def verifyChain(
-    msg: Array[Byte]
-  ): ArcResult = {
+  private def verifyChain(msg: Array[Byte]): ArcResult = {
     val (headers, bodyStart) = RawHeaders.split(msg)
     val arcHs = headers.filter(h => Arc.isArc(h.name))
     if arcHs.isEmpty then return ArcResult("none", 0, "")
@@ -35,9 +29,7 @@ final class Arc(
       case Left(why) => ArcResult("fail", Arc.highest(dkim, arcHs), why)
       case Right(sets) =>
         val n = sets.length
-        def fail(
-          why: String
-        ) = ArcResult("fail", n, why)
+        def fail(why: String) = ArcResult("fail", n, why)
         // 構造の確認（1番目の cv は none、それより後は pass。fail があれば鎖はもう壊れている）
         val cvs = sets.map(s => dkim.tags(Arc.value(s.as)).getOrElse("cv", "").toLowerCase)
         if cvs.head != "none" then return fail("i=1 の ARC-Seal の cv が none ではありません")
@@ -59,12 +51,7 @@ final class Arc(
   }
 
   /** ARC-Message-Signature の検証（DKIM の検証とほぼ同じ。v= はなく、ARC-Seal・ARC-Authentication-Results を署名してはいけない）。 */
-  private def verifyAms(
-    msg: Array[Byte],
-    headers: List[RawHeader],
-    bodyStart: Int,
-    set: Arc.ArcSet
-  ): Option[String] = {
+  private def verifyAms(msg: Array[Byte], headers: List[RawHeader], bodyStart: Int, set: Arc.ArcSet): Option[String] = {
     val t = dkim.tags(Arc.value(set.ams))
     val d = t.getOrElse("d", "").toLowerCase
     val s = t.getOrElse("s", "")
@@ -94,10 +81,7 @@ final class Arc(
   }
 
   /** i=k の ARC-Seal の検証（1..k のセットを AAR・AMS・AS の順に relaxed で並べたものに対する署名）。 */
-  private def verifySeal(
-    sets: Vector[Arc.ArcSet],
-    k: Int
-  ): Option[String] = {
+  private def verifySeal(sets: Vector[Arc.ArcSet], k: Int): Option[String] = {
     val set = sets(k - 1)
     val t = dkim.tags(Arc.value(set.as))
     val d = t.getOrElse("d", "").toLowerCase
@@ -111,13 +95,7 @@ final class Arc(
   }
 
   /** selector._domainkey.domain の公開鍵で署名を確かめる。正しければ None、だめなら理由。 */
-  private def checkSignature(
-    algo: String,
-    d: String,
-    s: String,
-    b: String,
-    data: Array[Byte]
-  ): Option[String] =
+  private def checkSignature(algo: String, d: String, s: String, b: String, data: Array[Byte]): Option[String] =
     dns.txt(s"$s._domainkey.$d") match {
       case Left(e) => Some(s"公開鍵を取得できません: $e")
       case Right(Nil) => Some("公開鍵がありません")
@@ -167,26 +145,15 @@ object Arc {
   val AmsHeaders = List("from", "to", "cc", "subject", "date", "message-id", "reply-to", "mime-version", "content-type")
 
   /** 同じ番号の ARC の3つのヘッダー。 */
-  private[core] final case class ArcSet(
-    i: Int,
-    aar: RawHeader,
-    ams: RawHeader,
-    as: RawHeader)
+  private[core] final case class ArcSet(i: Int, aar: RawHeader, ams: RawHeader, as: RawHeader)
 
-  private[core] def isArc(
-    name: String
-  ): Boolean =
+  private[core] def isArc(name: String): Boolean =
     name.equalsIgnoreCase(SealName) || name.equalsIgnoreCase(AmsName) || name.equalsIgnoreCase(AarName)
 
-  private[core] def value(
-    h: RawHeader
-  ): String = h.raw.substring(h.raw.indexOf(':') + 1)
+  private[core] def value(h: RawHeader): String = h.raw.substring(h.raw.indexOf(':') + 1)
 
   /** ヘッダーの i= の値（AAR は先頭の i= だけを見る。結果の中の文字列に惑わされないように）。 */
-  private[core] def instanceOf(
-    dkim: Dkim,
-    h: RawHeader
-  ): Option[Int] = {
+  private[core] def instanceOf(dkim: Dkim, h: RawHeader): Option[Int] = {
     val v = value(h)
     val raw =
       if h.name.equalsIgnoreCase(AarName) then {
@@ -198,17 +165,11 @@ object Arc {
   }
 
   /** 今ある ARC のセットの最も大きい番号（なければ 0）。 */
-  private[core] def highest(
-    dkim: Dkim,
-    arcHs: List[RawHeader]
-  ): Int =
+  private[core] def highest(dkim: Dkim, arcHs: List[RawHeader]): Int =
     arcHs.flatMap(instanceOf(dkim, _)).maxOption.getOrElse(0)
 
   /** ARC のヘッダーを番号ごとのセットにまとめる（番号が 1..N で連続し、各番号に3種類が1つずつあること）。 */
-  private[core] def collect(
-    dkim: Dkim,
-    arcHs: List[RawHeader]
-  ): Either[String, Vector[ArcSet]] = {
+  private[core] def collect(dkim: Dkim, arcHs: List[RawHeader]): Either[String, Vector[ArcSet]] = {
     val withI = arcHs.map(h => h -> instanceOf(dkim, h))
     withI.collectFirst { case (h, None) => h } match {
       case Some(h) => Left(s"${h.name} の i= が正しくありません")
@@ -221,9 +182,7 @@ object Arc {
         else {
           val sets: IndexedSeq[Either[String, ArcSet]] = (1 to n).map { i =>
             val hs = grouped(i).map(_._2)
-            def one(
-              name: String
-            ): Option[RawHeader] = hs.filter(_.name.equalsIgnoreCase(name)) match {
+            def one(name: String): Option[RawHeader] = hs.filter(_.name.equalsIgnoreCase(name)) match {
               case h :: Nil => Some(h)
               case _ => None
             }
@@ -241,13 +200,11 @@ object Arc {
   }
 
   /** h= のヘッダーを正規化して並べる（同じ名前は下から順に使う。DKIM と同じ）。 */
-  private[core] def appendSelected(
-    dkim: Dkim,
-    headers: List[RawHeader],
-    names: Seq[String],
-    mode: String,
-    out: StringBuilder
-  ): Unit = {
+  private[core] def appendSelected(dkim: Dkim,
+                                   headers: List[RawHeader],
+                                   names: Seq[String],
+                                   mode: String,
+                                   out: StringBuilder): Unit = {
     val used = scala.collection.mutable.Map.empty[String, Int]
     names.foreach { n =>
       val ln = n.toLowerCase
@@ -258,40 +215,28 @@ object Arc {
   }
 
   /** ARC-Seal の署名の対象（RFC 8617 §5.1.1。前のセットを番号の順に AAR・AMS・AS と並べ、最後に今のセット。今の AS は b= を空にして末尾の CRLF を除く）。 */
-  private[core] def sealData(
-    dkim: Dkim,
-    prior: Seq[ArcSet],
-    aar: RawHeader,
-    ams: RawHeader,
-    asNoB: RawHeader
-  ): Array[Byte] = {
+  private[core] def sealData(dkim: Dkim,
+                             prior: Seq[ArcSet],
+                             aar: RawHeader,
+                             ams: RawHeader,
+                             asNoB: RawHeader): Array[Byte] = {
     val sb = new StringBuilder
-    def c(
-      h: RawHeader
-    ) = dkim.canonHeader(h, "relaxed")
+    def c(h: RawHeader) = dkim.canonHeader(h, "relaxed")
     prior.foreach { p => sb.append(c(p.aar)).append(c(p.ams)).append(c(p.as)) }
     sb.append(c(aar)).append(c(ams)).append(c(asNoB).stripSuffix("\r\n"))
     sb.toString.getBytes(StandardCharsets.ISO_8859_1)
   }
 
-  private[core] def sha256(
-    data: Array[Byte]
-  ): Array[Byte] = MessageDigest.getInstance("SHA-256").digest(data)
+  private[core] def sha256(data: Array[Byte]): Array[Byte] = MessageDigest.getInstance("SHA-256").digest(data)
 
-  private def algorithmOf(
-    key: PrivateKey
-  ): String = key.getAlgorithm match {
+  private def algorithmOf(key: PrivateKey): String = key.getAlgorithm match {
     case "RSA" => "rsa-sha256"
     case "Ed25519" | "EdDSA" => "ed25519-sha256"
     case other => throw IllegalArgumentException(s"ARC の署名に使えない鍵です: $other")
   }
 
   /** 署名して base64 にする（長いので折り返す）。ed25519 は RFC 8463 に合わせて SHA-256 のハッシュに署名する。 */
-  private def signB64(
-    algo: String,
-    key: PrivateKey,
-    data: Array[Byte]
-  ): String = {
+  private def signB64(algo: String, key: PrivateKey, data: Array[Byte]): String = {
     val sig =
       if algo == "ed25519-sha256" then {
         val s = Signature.getInstance("Ed25519")
@@ -308,9 +253,7 @@ object Arc {
   }
 
   /** ヘッダーに入れる文字列から改行を除く（ヘッダーの注入を防ぐ）。 */
-  private def oneLine(
-    s: String
-  ): String = s.replaceAll("[\r\n]+", " ").trim
+  private def oneLine(s: String): String = s.replaceAll("[\r\n]+", " ").trim
 
   /**
    * 転送するときに付ける ARC の3つのヘッダー（ARC-Seal・ARC-Message-Signature・ARC-Authentication-Results）を、先頭に付ける文字列として返す（CRLF 区切り・末尾 CRLF）。
@@ -320,16 +263,14 @@ object Arc {
    * 簡略化: cv=fail のときは、壊れた鎖の前のセットは署名の対象に入れず、今のセットだけを封印する
    * （鎖はすでに失敗しており、受け取る側は cv=fail を見た時点で検証をやめるため。構造の壊れた鎖を並べられない場合にも困らない）。
    */
-  def seal(
-    msg: Array[Byte],
-    domain: String,
-    selector: String,
-    key: PrivateKey,
-    authservId: String,
-    authResults: String,
-    chain: ArcResult,
-    now: java.time.Instant
-  ): String = {
+  def seal(msg: Array[Byte],
+           domain: String,
+           selector: String,
+           key: PrivateKey,
+           authservId: String,
+           authResults: String,
+           chain: ArcResult,
+           now: java.time.Instant): String = {
     val dkim = new Dkim(NoDns)
     val (headers, bodyStart) = RawHeaders.split(msg)
     val arcHs = headers.filter(h => isArc(h.name))
@@ -367,17 +308,9 @@ object Arc {
   }
 
   private object NoDns extends Dns {
-    def txt(
-      name: String
-    ) = Right(Nil)
-    def addresses(
-      name: String
-    ) = Right(Nil)
-    def mx(
-      name: String
-    ) = Right(Nil)
-    def ptr(
-      ip: InetAddress
-    ) = Right(Nil)
+    def txt(name: String) = Right(Nil)
+    def addresses(name: String) = Right(Nil)
+    def mx(name: String) = Right(Nil)
+    def ptr(ip: InetAddress) = Right(Nil)
   }
 }

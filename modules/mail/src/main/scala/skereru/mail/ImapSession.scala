@@ -13,25 +13,22 @@ import java.nio.charset.StandardCharsets
 import java.util.UUID
 
 /** IMAP のセッション（RFC 3501 + UIDPLUS・MOVE・IDLE・SPECIAL-USE・NAMESPACE・ID・UNSELECT・LITERAL+・SASL-IR）。 */
-final class ImapSession(
-  conn: Conn,
-  cfg: MailConfig,
-  tls: Option[TlsHolder],
-  b: Bridge,
-  mail: MailStore,
-  blobs: skereru.storage.Blobs,
-  queue: QueueStore,
-  auth: MailAuth,
-  log: String => Unit) {
+final class ImapSession(conn: Conn,
+                        cfg: MailConfig,
+                        tls: Option[TlsHolder],
+                        b: Bridge,
+                        mail: MailStore,
+                        blobs: skereru.storage.Blobs,
+                        queue: QueueStore,
+                        auth: MailAuth,
+                        log: String => Unit) {
 
   private var user: Option[User] = None
   private var sel: Option[Selected] = None
   private var open = true
   private val SystemFlags = List(Flag.Answered, Flag.Flagged, Flag.Deleted, Flag.Seen, Flag.Draft)
 
-  private def out(
-    s: String
-  ): Unit = conn.write(s + "\r\n")
+  private def out(s: String): Unit = conn.write(s + "\r\n")
 
   private def capabilities: String = {
     val base = List(
@@ -117,30 +114,18 @@ final class ImapSession(
     Some(Right(outBuf.toByteArray))
   }
 
-  private def needAuth(
-    tag: String
-  )(
-    f: User => Unit
-  ): Unit = user match {
+  private def needAuth(tag: String)(f: User => Unit): Unit = user match {
     case None => out(s"$tag BAD Please log in first")
     case Some(u) => f(u)
   }
 
-  private def needSelected(
-    tag: String
-  )(
-    f: (User, Selected) => Unit
-  ): Unit = (user, sel) match {
+  private def needSelected(tag: String)(f: (User, Selected) => Unit): Unit = (user, sel) match {
     case (Some(u), Some(s)) => f(u, s)
     case (None, _) => out(s"$tag BAD Please log in first")
     case _ => out(s"$tag BAD No mailbox selected")
   }
 
-  private def handle(
-    tag: String,
-    cmd: String,
-    r: ImapReader
-  ): Unit = cmd match {
+  private def handle(tag: String, cmd: String, r: ImapReader): Unit = cmd match {
     case "CAPABILITY" => r.end(); out(s"* CAPABILITY $capabilities"); out(s"$tag OK CAPABILITY completed")
     case "NOOP" => r.end(); poll(expunges = true); out(s"$tag OK NOOP completed")
     case "LOGOUT" => r.end(); out(s"* BYE ${cfg.hostname} logging out"); out(s"$tag OK LOGOUT completed"); open = false
@@ -166,61 +151,24 @@ final class ImapSession(
     case "APPEND" => needAuth(tag)(u => append(tag, u, r))
     case "IDLE" => needAuth(tag)(_ => idle(tag))
     case "CHECK" => needSelected(tag) {
-        (
-          _,
-          _
-        ) => poll(expunges = true); out(s"$tag OK CHECK completed")
+        (_, _) => poll(expunges = true); out(s"$tag OK CHECK completed")
       }
     case "CLOSE" => needSelected(tag) {
-        (
-          _,
-          s
-        ) =>
+        (_, s) =>
           if !s.readOnly then b.run(mail.expunge(s.box.id, None))
           sel = None
           out(s"$tag OK CLOSE completed")
       }
     case "UNSELECT" => needSelected(tag) {
-        (
-          _,
-          _
-        ) => sel = None; out(s"$tag OK UNSELECT completed")
+        (_, _) => sel = None; out(s"$tag OK UNSELECT completed")
       }
-    case "EXPUNGE" => needSelected(tag)(
-        (
-          _,
-          s
-        ) => expunge(tag, s, None)
-      )
-    case "SEARCH" => needSelected(tag)(
-        (
-          _,
-          s
-        ) => search(tag, s, r, uid = false)
-      )
-    case "FETCH" => needSelected(tag)(
-        (
-          _,
-          s
-        ) => fetch(tag, s, r, uid = false)
-      )
-    case "STORE" => needSelected(tag)(
-        (
-          _,
-          s
-        ) => store(tag, s, r, uid = false)
-      )
-    case "COPY" | "MOVE" => needSelected(tag)(
-        (
-          u,
-          s
-        ) => copy(tag, u, s, r, uid = false, move = cmd == "MOVE")
-      )
+    case "EXPUNGE" => needSelected(tag)((_, s) => expunge(tag, s, None))
+    case "SEARCH" => needSelected(tag)((_, s) => search(tag, s, r, uid = false))
+    case "FETCH" => needSelected(tag)((_, s) => fetch(tag, s, r, uid = false))
+    case "STORE" => needSelected(tag)((_, s) => store(tag, s, r, uid = false))
+    case "COPY" | "MOVE" => needSelected(tag)((u, s) => copy(tag, u, s, r, uid = false, move = cmd == "MOVE"))
     case "UID" => needSelected(tag) {
-        (
-          u,
-          s
-        ) =>
+        (u, s) =>
           r.sp()
           r.atom().toUpperCase match {
             case "FETCH" => fetch(tag, s, r, uid = true)
@@ -237,10 +185,7 @@ final class ImapSession(
 
   // ---------------------------------------------------------------- 認証
 
-  private def starttls(
-    tag: String,
-    r: ImapReader
-  ): Unit = {
+  private def starttls(tag: String, r: ImapReader): Unit = {
     r.end()
     if conn.isTls then out(s"$tag BAD TLS already active")
     else
@@ -254,11 +199,7 @@ final class ImapSession(
       }
   }
 
-  private def doLogin(
-    tag: String,
-    login: String,
-    pass: String
-  ): Unit =
+  private def doLogin(tag: String, login: String, pass: String): Unit =
     if user.isDefined then out(s"$tag BAD Already authenticated")
     else if !conn.isTls && !cfg.allowPlainAuth then out(s"$tag NO [PRIVACYREQUIRED] Use STARTTLS or the TLS port first")
     else
@@ -271,18 +212,12 @@ final class ImapSession(
         case Left(_) => out(s"$tag NO [AUTHENTICATIONFAILED] Authentication failed")
       }
 
-  private def login(
-    tag: String,
-    r: ImapReader
-  ): Unit = {
+  private def login(tag: String, r: ImapReader): Unit = {
     r.sp(); val u = r.astring(); r.sp(); val p = r.astring(); r.end()
     doLogin(tag, u, p)
   }
 
-  private def authenticate(
-    tag: String,
-    r: ImapReader
-  ): Unit = {
+  private def authenticate(tag: String, r: ImapReader): Unit = {
     r.sp()
     val mech = r.atom().toUpperCase
     if mech != "PLAIN" then { out(s"$tag NO [CANNOT] Unsupported mechanism"); return }
@@ -305,16 +240,9 @@ final class ImapSession(
 
   // ---------------------------------------------------------------- メールボックス
 
-  private def validName(
-    n: String
-  ): Boolean = MailText.validMailboxName(n)
+  private def validName(n: String): Boolean = MailText.validMailboxName(n)
 
-  private def select(
-    tag: String,
-    u: User,
-    r: ImapReader,
-    readOnly: Boolean
-  ): Unit = {
+  private def select(tag: String, u: User, r: ImapReader, readOnly: Boolean): Unit = {
     r.sp(); val name = r.mailbox()
     sel = None
     b.run(mail.mailboxByName(u.id, name)) match {
@@ -342,11 +270,7 @@ final class ImapSession(
     }
   }
 
-  private def create(
-    tag: String,
-    u: User,
-    r: ImapReader
-  ): Unit = {
+  private def create(tag: String, u: User, r: ImapReader): Unit = {
     r.sp(); val name = r.mailbox().stripSuffix("/"); r.end()
     if !validName(name) then out(s"$tag NO [CANNOT] Invalid mailbox name")
     else {
@@ -360,11 +284,7 @@ final class ImapSession(
     }
   }
 
-  private def delete(
-    tag: String,
-    u: User,
-    r: ImapReader
-  ): Unit = {
+  private def delete(tag: String, u: User, r: ImapReader): Unit = {
     r.sp(); val name = r.mailbox(); r.end()
     if sel.exists(_.box.name == name) then sel = None
     b.run(mail.deleteMailbox(u.id, name)) match {
@@ -374,11 +294,7 @@ final class ImapSession(
     }
   }
 
-  private def rename(
-    tag: String,
-    u: User,
-    r: ImapReader
-  ): Unit = {
+  private def rename(tag: String, u: User, r: ImapReader): Unit = {
     r.sp(); val from = r.mailbox(); r.sp(); val to = r.mailbox(); r.end()
     if !validName(to) then out(s"$tag NO [CANNOT] Invalid mailbox name")
     else
@@ -392,21 +308,13 @@ final class ImapSession(
   }
 
   /** 応答の文言（日本語のメッセージは IMAP では送れないので英語にする）。 */
-  private def ascii(
-    s: String
-  ): String = if s.forall(_ < 0x80) then s else "Operation not permitted"
+  private def ascii(s: String): String = if s.forall(_ < 0x80) then s else "Operation not permitted"
 
-  private def matches(
-    pattern: String,
-    name: String
-  ): Boolean =
+  private def matches(pattern: String, name: String): Boolean =
     glob(pattern, name) || (name == "INBOX" && glob(pattern.toUpperCase, "INBOX"))
 
   /** LIST のパターン（* は何でも、% は "/" 以外）の照合。正規表現だと * を並べたパターンで計算が爆発するので、表で O(パターン×名前) にする。 */
-  private def glob(
-    p: String,
-    n: String
-  ): Boolean =
+  private def glob(p: String, n: String): Boolean =
     if p.length > 1000 then false
     else {
       // ok(j): パターンの先頭 i 文字が名前の先頭 j 文字に合う
@@ -431,12 +339,7 @@ final class ImapSession(
       ok(n.length)
     }
 
-  private def list(
-    tag: String,
-    u: User,
-    r: ImapReader,
-    lsub: Boolean
-  ): Unit = {
+  private def list(tag: String, u: User, r: ImapReader, lsub: Boolean): Unit = {
     r.sp()
     // LIST-EXTENDED の選択肢（"(SPECIAL-USE)" など）は読み飛ばす
     if r.peekChar == '(' then { r.flagList(); r.sp() }
@@ -460,11 +363,7 @@ final class ImapSession(
     out(s"$tag OK ${if lsub then "LSUB" else "LIST"} completed")
   }
 
-  private def status(
-    tag: String,
-    u: User,
-    r: ImapReader
-  ): Unit = {
+  private def status(tag: String, u: User, r: ImapReader): Unit = {
     r.sp(); val name = r.mailbox(); r.sp()
     val items = r.flagList().map(_.toUpperCase)
     r.end()
@@ -485,11 +384,7 @@ final class ImapSession(
     }
   }
 
-  private def append(
-    tag: String,
-    u: User,
-    r: ImapReader
-  ): Unit = {
+  private def append(tag: String, u: User, r: ImapReader): Unit = {
     r.sp(); val name = r.mailbox(); r.sp()
     val flags = if r.peekChar == '(' then { val f = r.flagList(); r.sp(); f }
     else Nil
@@ -517,9 +412,7 @@ final class ImapSession(
     }
   }
 
-  private def cleanFlags(
-    fs: List[String]
-  ): List[String] =
+  private def cleanFlags(fs: List[String]): List[String] =
     fs.flatMap { f =>
       SystemFlags.find(
         _.equalsIgnoreCase(f)
@@ -529,9 +422,7 @@ final class ImapSession(
   // ---------------------------------------------------------------- 変化の通知
 
   /** 選択中のメールボックスの変化（追加・削除・フラグ）を知らせる。expunges=false なら EXPUNGE は後回しにする。 */
-  private def poll(
-    expunges: Boolean
-  ): Unit = sel.foreach { s =>
+  private def poll(expunges: Boolean): Unit = sel.foreach { s =>
     b.run(mail.mailbox(s.box.id)) match {
       case None =>
         out("* BYE Mailbox has been deleted"); open = false
@@ -567,9 +458,7 @@ final class ImapSession(
     }
   }
 
-  private def idle(
-    tag: String
-  ): Unit = {
+  private def idle(tag: String): Unit = {
     out("+ idling")
     conn.setTimeout(cfg.imapIdlePollMs)
     val started = System.currentTimeMillis()
@@ -596,22 +485,14 @@ final class ImapSession(
   // ---------------------------------------------------------------- メッセージ
 
   /** シーケンス集合（または UID 集合）を、選択中のメールボックスの UID にする。 */
-  private def resolve(
-    s: Selected,
-    set: SeqSet,
-    uid: Boolean
-  ): List[Long] =
+  private def resolve(s: Selected, set: SeqSet, uid: Boolean): List[Long] =
     if uid then
       // UID の範囲は、存在する UID のうち範囲に入るもの（"*" は最大の UID）
       s.uids.filter(u => set.contains(u, s.maxUid)).toList
     else
       (1 to s.exists).filter(i => set.contains(i.toLong, s.exists.toLong)).map(i => s.uids(i - 1)).toList
 
-  private def expunge(
-    tag: String,
-    s: Selected,
-    only: Option[SeqSet]
-  ): Unit =
+  private def expunge(tag: String, s: Selected, only: Option[SeqSet]): Unit =
     if s.readOnly then out(s"$tag NO [READ-ONLY] Mailbox is read-only")
     else {
       val uids = only.map(set => resolve(s, set, uid = true))
@@ -620,12 +501,7 @@ final class ImapSession(
       out(s"$tag OK EXPUNGE completed")
     }
 
-  private def search(
-    tag: String,
-    s: Selected,
-    r: ImapReader,
-    uid: Boolean
-  ): Unit = {
+  private def search(tag: String, s: Selected, r: ImapReader, uid: Boolean): Unit = {
     r.sp()
     // CHARSET の指定（UTF-8 と US-ASCII だけ）
     val mark = r.position
@@ -650,10 +526,7 @@ final class ImapSession(
   }
 
   /** シーケンス番号の条件を UID の条件に置き換える。 */
-  private def toUidKeys(
-    s: Selected,
-    k: SearchKey
-  ): SearchKey = k match {
+  private def toUidKeys(s: Selected, k: SearchKey): SearchKey = k match {
     case SearchKey.Seq(set) =>
       val uids = resolve(s, set, uid = false)
       if uids.isEmpty then SearchKey.Not(SearchKey.All) else SearchKey.Uid(SeqSet.parse(SeqSet.format(uids)))
@@ -663,12 +536,7 @@ final class ImapSession(
     case other => other
   }
 
-  private def fetch(
-    tag: String,
-    s: Selected,
-    r: ImapReader,
-    uid: Boolean
-  ): Unit = {
+  private def fetch(tag: String, s: Selected, r: ImapReader, uid: Boolean): Unit = {
     r.sp()
     val set = r.seqSet(); r.sp()
     val atts0 = r.fetchAtts()
@@ -699,23 +567,14 @@ final class ImapSession(
             if needBody then b.run(blobs.get(m.blobId)).getOrElse(Array.emptyByteArray) else Array.emptyByteArray
           lazy val root = Mime.parse(raw)
           val buf = new ByteArrayOutputStream()
-          def w(
-            x: String
-          ): Unit = buf.write(x.getBytes(StandardCharsets.ISO_8859_1))
-          def wu(
-            x: String
-          ): Unit = buf.write(x.getBytes(StandardCharsets.UTF_8))
-          def lit(
-            bytes: Array[Byte]
-          ): Unit = { w(s"{${bytes.length}}\r\n"); buf.write(bytes) }
+          def w(x: String): Unit = buf.write(x.getBytes(StandardCharsets.ISO_8859_1))
+          def wu(x: String): Unit = buf.write(x.getBytes(StandardCharsets.UTF_8))
+          def lit(bytes: Array[Byte]): Unit = { w(s"{${bytes.length}}\r\n"); buf.write(bytes) }
           w(s"* $seq FETCH (")
           val items = (if seenNow.contains(u) && !atts.contains(FetchAtt.Flags) then FetchAtt.Flags :: atts
                        else atts).distinct
           items.zipWithIndex.foreach {
-            (
-              a,
-              i
-            ) =>
+            (a, i) =>
               {
                 if i > 0 then w(" ")
                 a match {
@@ -755,12 +614,7 @@ final class ImapSession(
     out(s"$tag OK ${if uid then "UID " else ""}FETCH completed")
   }
 
-  private def store(
-    tag: String,
-    s: Selected,
-    r: ImapReader,
-    uid: Boolean
-  ): Unit = {
+  private def store(tag: String, s: Selected, r: ImapReader, uid: Boolean): Unit = {
     r.sp()
     val set = r.seqSet(); r.sp()
     // UNCHANGEDSINCE（CONDSTORE）は使わない
@@ -797,14 +651,7 @@ final class ImapSession(
     out(s"$tag OK STORE completed")
   }
 
-  private def copy(
-    tag: String,
-    u: User,
-    s: Selected,
-    r: ImapReader,
-    uid: Boolean,
-    move: Boolean
-  ): Unit = {
+  private def copy(tag: String, u: User, s: Selected, r: ImapReader, uid: Boolean, move: Boolean): Unit = {
     r.sp()
     val set = r.seqSet(); r.sp()
     val name = r.mailbox()
@@ -839,12 +686,7 @@ final class ImapSession(
   }
 
   /** 迷惑メールの学習（応答を待たせないよう、別のスレッドで）。 */
-  private def train(
-    userId: UUID,
-    uids: List[Long],
-    boxId: UUID,
-    spam: Boolean
-  ): Unit =
+  private def train(userId: UUID, uids: List[Long], boxId: UUID, spam: Boolean): Unit =
     if uids.nonEmpty then
       Thread.ofVirtual().start { () =>
         try

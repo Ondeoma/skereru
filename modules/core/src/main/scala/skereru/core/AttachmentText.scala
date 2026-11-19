@@ -35,11 +35,7 @@ object AttachmentText {
   }
 
   /** 検索のための添付ファイルの本文（すべての添付をつないだもの。合計 maxChars 文字まで）。読めない形式は飛ばす。例外は出さない。 */
-  def extract(
-    raw: Array[Byte],
-    root: MimePart,
-    maxChars: Int = 200_000
-  ): String = {
+  def extract(raw: Array[Byte], root: MimePart, maxChars: Int = 200_000): String = {
     val deadline = System.nanoTime() + TimeBudgetNanos
     val out = new Out(maxChars)
     Try {
@@ -63,12 +59,7 @@ object AttachmentText {
   }
 
   /** 1つのファイルの本文（mimeType とファイル名の拡張子で形式を決める）。 */
-  def fromFile(
-    bytes: Array[Byte],
-    mimeType: String,
-    filename: String,
-    maxChars: Int
-  ): Option[String] =
+  def fromFile(bytes: Array[Byte], mimeType: String, filename: String, maxChars: Int): Option[String] =
     if bytes.length > MaxFileBytes || maxChars <= 0 then None
     else
       kindOf(mimeType, filename).flatMap { kind =>
@@ -78,24 +69,17 @@ object AttachmentText {
       }
 
   /** 添付として読む部品か（本文の text/plain・text/html は別に索引するので除く。中のメッセージ（message/rfc822）も除く）。 */
-  private def isCandidate(
-    p: MimePart
-  ): Boolean =
+  private def isCandidate(p: MimePart): Boolean =
     !p.isMultipart && !p.isMessage && (p.isAttachment || p.filename.isDefined)
 
-  private def extOf(
-    filename: String
-  ): String = {
+  private def extOf(filename: String): String = {
     val n = filename.trim.toLowerCase
     val i = n.lastIndexOf('.')
     if i >= 0 then n.substring(i + 1) else ""
   }
 
   /** 形式を決める（拡張子を優先する。application/octet-stream で送られてくる Office 文書が多いため）。 */
-  private def kindOf(
-    mimeType: String,
-    filename: String
-  ): Option[Kind] = {
+  private def kindOf(mimeType: String, filename: String): Option[Kind] = {
     val mt = mimeType.trim.toLowerCase
     extOf(filename) match {
       case "pdf" => Some(Kind.Pdf)
@@ -118,31 +102,22 @@ object AttachmentText {
     }
   }
 
-  private def read(
-    kind: Kind,
-    bytes: Array[Byte],
-    charset: Option[String],
-    out: Out,
-    deadline: Long
-  ): Unit = kind match {
-    case Kind.Text => out.append(decode(bytes, charset, out.max))
-    case Kind.Html => out.append(Html.toText(decode(bytes, charset, Int.MaxValue)))
-    case Kind.Pdf => pdf(bytes, out)
-    case Kind.Docx => zip(bytes, out, deadline, allText = false)(DocxEntry.matches)
-    case Kind.Xlsx => zip(bytes, out, deadline, allText = false)(_ == "xl/sharedStrings.xml")
-    case Kind.Pptx => zip(bytes, out, deadline, allText = false)(PptxEntry.matches)
-    case Kind.Odf => zip(bytes, out, deadline, allText = true)(_ == "content.xml")
-  }
+  private def read(kind: Kind, bytes: Array[Byte], charset: Option[String], out: Out, deadline: Long): Unit =
+    kind match {
+      case Kind.Text => out.append(decode(bytes, charset, out.max))
+      case Kind.Html => out.append(Html.toText(decode(bytes, charset, Int.MaxValue)))
+      case Kind.Pdf => pdf(bytes, out)
+      case Kind.Docx => zip(bytes, out, deadline, allText = false)(DocxEntry.matches)
+      case Kind.Xlsx => zip(bytes, out, deadline, allText = false)(_ == "xl/sharedStrings.xml")
+      case Kind.Pptx => zip(bytes, out, deadline, allText = false)(PptxEntry.matches)
+      case Kind.Odf => zip(bytes, out, deadline, allText = true)(_ == "content.xml")
+    }
 
   /**
    * 文字コードの指定があればそれで、なければ推測して（UTF-8、だめなら ISO-2022-JP・Shift_JIS）読む。
    * 必要な文字数を超える分（1文字 4 バイトとして）は読まない。
    */
-  private def decode(
-    bytes: Array[Byte],
-    charset: Option[String],
-    maxChars: Int
-  ): String = {
+  private def decode(bytes: Array[Byte], charset: Option[String], maxChars: Int): String = {
     val limit = math.min(bytes.length.toLong, maxChars.toLong * 4).toInt
     val b = if limit < bytes.length then java.util.Arrays.copyOf(bytes, limit) else bytes
     new String(b, charset.map(Mime.charsetFor).getOrElse(Mime.guessCharset(b)))
@@ -151,10 +126,7 @@ object AttachmentText {
   // ---------------------------------------------------------------- PDF
 
   /** PDF の本文（先頭の MaxPdfPages ページまで）。暗号化されていて読めないもの・壊れたものは例外になる（呼び出し側で捨てる）。 */
-  private def pdf(
-    bytes: Array[Byte],
-    out: Out
-  ): Unit = {
+  private def pdf(bytes: Array[Byte], out: Out): Unit = {
     val doc = Loader.loadPDF(bytes)
     try {
       val st = new PDFTextStripper
@@ -170,16 +142,12 @@ object AttachmentText {
   private val PptxEntry = """ppt/(slides/slide|notesSlides/notesSlide)\d+\.xml""".r
 
   /** ZIP の展開量・時間の残り。 */
-  private final class Budget(
-    var bytes: Long,
-    val deadline: Long) {
+  private final class Budget(var bytes: Long, val deadline: Long) {
     def ok: Boolean = bytes > 0 && System.nanoTime() < deadline
   }
 
   /** 展開したバイト数を数え、上限か時間切れで終わり（-1）を返す入力。close しても元の ZIP は閉じない。 */
-  private final class Counted(
-    in: InputStream,
-    budget: Budget) extends InputStream {
+  private final class Counted(in: InputStream, budget: Budget) extends InputStream {
     override def read(): Int =
       if !budget.ok then -1
       else {
@@ -187,11 +155,7 @@ object AttachmentText {
         if c >= 0 then budget.bytes -= 1
         c
       }
-    override def read(
-      b: Array[Byte],
-      off: Int,
-      len: Int
-    ): Int =
+    override def read(b: Array[Byte], off: Int, len: Int): Int =
       if len == 0 then 0
       else if !budget.ok then -1
       else {
@@ -206,14 +170,7 @@ object AttachmentText {
    * ZIP の項目を順に読み、wanted な XML の文字を取り出す。読み飛ばす項目も展開量に数える（ZIP 爆弾対策）。
    * 途中で壊れていても、それまでに読めた文字は残す。
    */
-  private def zip(
-    bytes: Array[Byte],
-    out: Out,
-    deadline: Long,
-    allText: Boolean
-  )(
-    wanted: String => Boolean
-  ): Unit = {
+  private def zip(bytes: Array[Byte], out: Out, deadline: Long, allText: Boolean)(wanted: String => Boolean): Unit = {
     val budget = new Budget(MaxZipBytes, deadline)
     val zin = new ZipInputStream(new ByteArrayInputStream(bytes))
     try {
@@ -233,9 +190,7 @@ object AttachmentText {
   }
 
   /** 項目の残りを読み捨てる（getNextEntry に任せると、上限なしに展開されてしまう）。 */
-  private def drain(
-    in: InputStream
-  ): Unit = {
+  private def drain(in: InputStream): Unit = {
     val buf = new Array[Byte](8192)
     while in.read(buf) >= 0 do ()
   }
@@ -247,11 +202,7 @@ object AttachmentText {
    * XML の文字を取り出す。allText なら全ての文字（ODF）、でなければ t 要素（w:t・a:t・共有文字列の t）の中だけ（OOXML）。
    * DTD・外部実体は読まない（XXE・実体の展開による爆弾の対策）。
    */
-  private def xmlText(
-    in: InputStream,
-    out: Out,
-    allText: Boolean
-  ): Unit = {
+  private def xmlText(in: InputStream, out: Out, allText: Boolean): Unit = {
     val f = XMLInputFactory.newFactory()
     f.setProperty(XMLInputFactory.SUPPORT_DTD, java.lang.Boolean.FALSE)
     f.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, java.lang.Boolean.FALSE)
@@ -281,14 +232,11 @@ object AttachmentText {
   // ---------------------------------------------------------------- 出力
 
   /** 空白をまとめながら max 文字までためる。 */
-  private final class Out(
-    val max: Int) {
+  private final class Out(val max: Int) {
     private val sb = new StringBuilder
     private var space = true // 先頭の空白は捨てる
     def full: Boolean = sb.length >= max
-    def append(
-      s: CharSequence
-    ): Unit = {
+    def append(s: CharSequence): Unit = {
       var i = 0
       while i < s.length && sb.length < max do {
         val c = s.charAt(i)

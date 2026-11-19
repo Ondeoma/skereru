@@ -45,11 +45,7 @@ object Html {
    * 表示用の HTML を作る。
    * cid: の画像は cidUrl で自分のサーバーの URL に、外部の画像は allowRemote のときだけ残す。戻り値の2つ目は外部の画像があったか。
    */
-  def sanitize(
-    html: String,
-    cidUrl: String => Option[String],
-    allowRemote: Boolean
-  ): (String, Boolean) = {
+  def sanitize(html: String, cidUrl: String => Option[String], allowRemote: Boolean): (String, Boolean) = {
     val dirty = Jsoup.parse(html)
     // <style> の中身は Safelist で消えるので、残す前に退避しておく（外部の読み込みは除く）
     val styles = dirty.select("style").asScala.map(_.data()).map(stripCssUrls(_, allowRemote)).mkString("\n")
@@ -96,10 +92,7 @@ object Html {
   }
 
   /** CSS の url(…) と @import を取り除く（allowRemote のときは https の url だけ残す）。 */
-  private def stripCssUrls(
-    css: String,
-    allowRemote: Boolean
-  ): String = {
+  private def stripCssUrls(css: String, allowRemote: Boolean): String = {
     // CSS のエスケープ（u\72l( など）は外部の読み込みを隠すのに使われるので、戻してから調べる
     val noImport = unescapeCss(css).replaceAll("(?i)@import[^;]*;?", "")
     val noSet = if allowRemote then noImport else replaceCalls(noImport, ImageSet, _ => "none")
@@ -124,11 +117,7 @@ object Html {
    * name( … ) の呼び出しを repl で置き換える。閉じ括弧がなければ、残りすべてを1つの呼び出しとみなす。
    * 正規表現の "url\\([^)]*\\)" は、閉じない "url(" を並べると計算が二乗になるので、前から1回だけ走査する。
    */
-  private def replaceCalls(
-    css: String,
-    name: java.util.regex.Pattern,
-    repl: String => String
-  ): String = {
+  private def replaceCalls(css: String, name: java.util.regex.Pattern, repl: String => String): String = {
     val m = name.matcher(css)
     val sb = new StringBuilder
     var from = 0
@@ -143,9 +132,7 @@ object Html {
   }
 
   /** CSS のエスケープ（\72 や \r）を文字に戻す。 */
-  def unescapeCss(
-    css: String
-  ): String =
+  def unescapeCss(css: String): String =
     """\\([0-9a-fA-F]{1,6})\s?|\\(.)""".r.replaceAllIn(
       css,
       m =>
@@ -157,15 +144,11 @@ object Html {
     )
 
   /** HTML をテキストにする（段落・改行を保つ）。 */
-  def toText(
-    html: String
-  ): String = {
+  def toText(html: String): String = {
     val doc: Document = Jsoup.parse(html)
     doc.select("script, style, head").remove()
     val sb = new StringBuilder
-    def walk(
-      e: Element
-    ): Unit =
+    def walk(e: Element): Unit =
       e.childNodes().asScala.foreach {
         case t: org.jsoup.nodes.TextNode => sb.append(t.text())
         case el: Element =>
@@ -205,21 +188,15 @@ object Html {
     sb.toString.split("\n", -1).map(rtrim).mkString("\n").replaceAll("\n{3,}", "\n\n").trim
   }
 
-  private def rtrim(
-    l: String
-  ): String = {
+  private def rtrim(l: String): String = {
     var e = l.length
     while e > 0 && (l.charAt(e - 1) == ' ' || l.charAt(e - 1) == '\t' || l.charAt(e - 1) == '\u00a0') do e -= 1
     l.substring(0, e)
   }
 
   /** テキストを HTML にする（返信の引用・署名用）。 */
-  def escape(
-    s: String
-  ): String =
+  def escape(s: String): String =
     s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;")
 
-  def fromText(
-    s: String
-  ): String = escape(s).replace("\r\n", "\n").replace("\n", "<br>")
+  def fromText(s: String): String = escape(s).replace("\r\n", "\n").replace("\n", "<br>")
 }

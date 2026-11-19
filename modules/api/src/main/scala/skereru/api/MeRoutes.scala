@@ -18,13 +18,12 @@ import skereru.mail.MailConfig
 import skereru.shared.*
 
 /** 自分の情報・設定・アプリパスワード・APIキー・宛先の候補・振り分けの規則。 */
-final class MeRoutes(
-  users: UserStore,
-  domains: DomainStore,
-  mail: MailStore,
-  queue: QueueStore,
-  val sessions: SessionAuth,
-  mcfg: MailConfig)
+final class MeRoutes(users: UserStore,
+                     domains: DomainStore,
+                     mail: MailStore,
+                     queue: QueueStore,
+                     val sessions: SessionAuth,
+                     mcfg: MailConfig)
   extends RouteSupport {
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
@@ -50,14 +49,10 @@ final class MeRoutes(
     case req @ DELETE -> Root / "api" / "filters" / UuidVar(id) => deleteFilter(req, id)
   }
 
-  private def getMe(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def getMe(req: Request[IO]): IO[Response[IO]] =
     authed(req)(s => me(s).flatMap(m => sessions.appNames(req).flatMap(n => Ok(m.copy(appNames = n)))))
 
-  private def patchMe(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def patchMe(req: Request[IO]): IO[Response[IO]] =
     authed(req)(s =>
       body[UpdateMeReq](req)(r =>
         if r.timezone.exists(tz => scala.util.Try(java.time.ZoneId.of(tz)).isFailure) then
@@ -66,14 +61,10 @@ final class MeRoutes(
       )
     )
 
-  private def getMeSettings(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def getMeSettings(req: Request[IO]): IO[Response[IO]] =
     authed(req)(s => users.settings(s.user.id).flatMap(Ok(_)))
 
-  private def putMeSettings(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def putMeSettings(req: Request[IO]): IO[Response[IO]] =
     authed(req)(s =>
       body[MailSettingsDto](req)(x =>
         if x.vacation.enabled && !s.can(ApiScope.Send) then err(ErrorCode.VacationNeedsSend)
@@ -85,19 +76,14 @@ final class MeRoutes(
       )
     )
 
-  private def putMePrimaryAddress(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def putMePrimaryAddress(req: Request[IO], id: UUID): IO[Response[IO]] =
     authed(req)(s =>
       domains.setPrimary(s.user.id, id).flatMap(n =>
         if n == 0 then err(ErrorCode.AddressNotFound) else NoContent()
       )
     )
 
-  private def getAddressBook(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def getAddressBook(req: Request[IO]): IO[Response[IO]] =
     authed(req)(s =>
       users.addressBook(
         s.user.id,
@@ -107,9 +93,7 @@ final class MeRoutes(
       ).flatMap(Ok(_))
     )
 
-  private def postAddressBook(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def postAddressBook(req: Request[IO]): IO[Response[IO]] =
     authed(req)(s =>
       body[SaveContactReq](req) { r =>
         if !skereru.core.Address.valid(r.address.trim) then err(ErrorCode.AddressInvalid)
@@ -117,30 +101,22 @@ final class MeRoutes(
       }
     )
 
-  private def deleteAddressBook(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def deleteAddressBook(req: Request[IO]): IO[Response[IO]] =
     authed(req)(s =>
       param(req, "address").fold(err(ErrorCode.AddressRequired))(a =>
         users.deleteContact(s.user.id, a).flatMap(n => Ok(UpdatedDto(n)))
       )
     )
 
-  private def getContacts(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def getContacts(req: Request[IO]): IO[Response[IO]] =
     authed(req)(s =>
       users.contacts(s.user.id, param(req, "q").getOrElse(""), intParam(req, "limit", 10, 50)).flatMap(Ok(_))
     )
 
-  private def getMeAppPasswords(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def getMeAppPasswords(req: Request[IO]): IO[Response[IO]] =
     sessionOnly(req)(s => users.appPasswords(s.user.id).flatMap(Ok(_)))
 
-  private def postMeAppPasswords(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def postMeAppPasswords(req: Request[IO]): IO[Response[IO]] =
     sessionOnly(req)(s =>
       body[CreateAppPasswordReq](req) { r =>
         if r.name.trim.isEmpty then err(ErrorCode.AppPasswordNameRequired)
@@ -161,10 +137,7 @@ final class MeRoutes(
       }
     )
 
-  private def deleteMeAppPassword(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def deleteMeAppPassword(req: Request[IO], id: UUID): IO[Response[IO]] =
     sessionOnly(req)(s =>
       users.deleteAppPassword(s.user.id, id).flatMap(n =>
         if n == 0 then err(ErrorCode.AppPasswordNotFound)
@@ -172,14 +145,10 @@ final class MeRoutes(
       )
     )
 
-  private def getMeApiKeys(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def getMeApiKeys(req: Request[IO]): IO[Response[IO]] =
     sessionOnly(req)(s => users.apiKeys(s.user.id).flatMap(Ok(_)))
 
-  private def postMeApiKeys(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def postMeApiKeys(req: Request[IO]): IO[Response[IO]] =
     sessionOnly(req)(s =>
       body[CreateApiKeyReq](req)(r =>
         respond(ApiKeyIssuer.issue(
@@ -200,10 +169,7 @@ final class MeRoutes(
       )
     )
 
-  private def deleteMeApiKey(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def deleteMeApiKey(req: Request[IO], id: UUID): IO[Response[IO]] =
     sessionOnly(req)(s =>
       users.deleteApiKey(s.user.id, id).flatMap(n =>
         if n == 0 then err(ErrorCode.ApiKeyNotFound)
@@ -211,14 +177,10 @@ final class MeRoutes(
       )
     )
 
-  private def getFilters(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def getFilters(req: Request[IO]): IO[Response[IO]] =
     authed(req)(s => queue.rules(s.user.id).flatMap(Ok(_)))
 
-  private def postFilters(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def postFilters(req: Request[IO]): IO[Response[IO]] =
     authed(req)(s =>
       body[FilterRuleReq](req)(r =>
         if forwards(r) && !s.can(ApiScope.Send) then needSend
@@ -233,15 +195,10 @@ final class MeRoutes(
       )
     )
 
-  private def putFiltersOrder(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def putFiltersOrder(req: Request[IO]): IO[Response[IO]] =
     authed(req)(s => body[ReorderReq](req)(r => queue.reorderRules(s.user.id, r.ids) *> NoContent()))
 
-  private def putFilter(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def putFilter(req: Request[IO], id: UUID): IO[Response[IO]] =
     authed(req)(s =>
       body[FilterRuleReq](req)(r =>
         if forwards(r) && !s.can(ApiScope.Send) then needSend
@@ -255,17 +212,12 @@ final class MeRoutes(
       )
     )
 
-  private def deleteFilter(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def deleteFilter(req: Request[IO], id: UUID): IO[Response[IO]] =
     authed(req)(s =>
       queue.deleteRule(s.user.id, id).flatMap(n => if n == 0 then err(ErrorCode.RuleNotFound) else NoContent())
     )
 
-  def me(
-    s: AuthSession
-  ): IO[MeDto] =
+  def me(s: AuthSession): IO[MeDto] =
     for {
       addrs <- domains.addresses(None, Some(s.user.id))
       q <- mail.quota(s.user.id, mcfg.defaultQuotaBytes)
@@ -285,9 +237,7 @@ final class MeRoutes(
       s.scopes.toList.sorted
     )
 
-  private def validSettings(
-    x: MailSettingsDto
-  ): Either[String, MailSettingsDto] = {
+  private def validSettings(x: MailSettingsDto): Either[String, MailSettingsDto] = {
     val dateOk = (d: Option[String]) => d.forall(v => scala.util.Try(java.time.LocalDate.parse(v)).isSuccess)
     if x.signature.length > 10_000 || x.vacation.body.length > 10_000 then Left("署名・自動返信の本文が長すぎます")
     else if !dateOk(x.vacation.startDate) || !dateOk(x.vacation.endDate) then Left("日付は yyyy-MM-dd で指定してください")
@@ -300,9 +250,7 @@ final class MeRoutes(
       ))
   }
 
-  private def forwards(
-    r: FilterRuleReq
-  ): Boolean = r.actions.exists(_.kind == RuleAction.Forward)
+  private def forwards(r: FilterRuleReq): Boolean = r.actions.exists(_.kind == RuleAction.Forward)
   private def needSend = err(ErrorCode.RuleForwardNeedsSend)
 
 }

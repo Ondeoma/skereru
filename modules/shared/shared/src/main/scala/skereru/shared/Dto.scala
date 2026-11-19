@@ -18,9 +18,7 @@ object SpecialUse {
   val all: List[String] = List(Inbox, Drafts, Sent, Junk, Trash, Archive)
 
   /** 新しいユーザーに作るメールボックスの名前. */
-  def defaultName(
-    u: String
-  ): String = u match {
+  def defaultName(u: String): String = u match {
     case Inbox => "INBOX"
     case Drafts => "Drafts"
     case Sent => "Sent"
@@ -29,9 +27,7 @@ object SpecialUse {
     case Archive => "Archive"
     case other => other
   }
-  def label(
-    u: String
-  ): String = u match {
+  def label(u: String): String = u match {
     case Inbox => "受信トレイ"
     case Drafts => "下書き"
     case Sent => "送信済み"
@@ -40,9 +36,7 @@ object SpecialUse {
     case Archive => "アーカイブ"
     case other => other
   }
-  def icon(
-    u: String
-  ): String = u match {
+  def icon(u: String): String = u match {
     case Inbox => "📥"
     case Drafts => "📝"
     case Sent => "📤"
@@ -53,9 +47,7 @@ object SpecialUse {
   }
 
   /** IMAP の属性（\Sent など）. */
-  def imapAttr(
-    u: String
-  ): Option[String] = u match {
+  def imapAttr(u: String): Option[String] = u match {
     case Drafts => Some("\\Drafts")
     case Sent => Some("\\Sent")
     case Junk => Some("\\Junk")
@@ -85,9 +77,7 @@ object ApiScope {
   val Send = "send"
   val Admin = "admin"
   val all: List[String] = List(Read, Write, Send, Admin)
-  def label(
-    s: String
-  ): String = s match {
+  def label(s: String): String = s match {
     case Read => "参照"
     case Write => "整理（既読・移動・削除・設定）"
     case Send => "送信"
@@ -107,9 +97,7 @@ object RuleField {
   val ListId = "list-id"
   val Header = "header"
   val all: List[String] = List(From, To, Cc, Recipient, Subject, Body, ListId, Header)
-  def label(
-    f: String
-  ): String = f match {
+  def label(f: String): String = f match {
     case From => "差出人"
     case To => "宛先（To）"
     case Cc => "Cc"
@@ -129,9 +117,7 @@ object RuleOp {
   val StartsWith = "starts_with"
   val EndsWith = "ends_with"
   val all: List[String] = List(Contains, NotContains, Equals, StartsWith, EndsWith)
-  def label(
-    o: String
-  ): String = o match {
+  def label(o: String): String = o match {
     case Contains => "を含む"
     case NotContains => "を含まない"
     case Equals => "と一致する"
@@ -150,9 +136,7 @@ object RuleAction {
   val NotSpam = "not_spam"
   val Stop = "stop"
   val all: List[String] = List(Move, MarkRead, Flag, Delete, Forward, NotSpam, Stop)
-  def label(
-    a: String
-  ): String = a match {
+  def label(a: String): String = a match {
     case Move => "メールボックスへ移動"
     case MarkRead => "既読にする"
     case Flag => "スターを付ける"
@@ -162,70 +146,56 @@ object RuleAction {
     case Stop => "以降の規則を適用しない"
     case _ => a
   }
-  def needsArg(
-    a: String
-  ): Boolean = a == Move || a == Forward
+  def needsArg(a: String): Boolean = a == Move || a == Forward
 }
 
 // ---------------------------------------------------------------- 自分・アドレス
 
-final case class AddrDto(
-  name: Option[String],
-  address: String) derives Encoder.AsObject, Decoder
+final case class AddrDto(name: Option[String], address: String) derives Encoder.AsObject, Decoder
 
 /** 宛先の書き方（"名前" <addr>。名前の引用符・バックスラッシュは取り除く）とメールボックスの名前の検査. 画面とサーバーで共通. */
 object MailText {
-  def quoted(
-    name: Option[String],
-    address: String
-  ): String =
+  def quoted(name: Option[String], address: String): String =
     name.map(_.replace("\"", "").replace("\\", "").trim).filter(_.nonEmpty).fold(address)(n =>
       "\"" + n + "\" <" + address + ">"
     )
 
   /** メールボックスの名前（階層は /。空・前後の /・// ・制御文字・IMAP のワイルドカードは不可、INBOX は予約）. */
-  def validMailboxName(
-    n: String
-  ): Boolean =
+  def validMailboxName(n: String): Boolean =
     n.nonEmpty && n.length <= 200 && !n.startsWith("/") && !n.endsWith("/") && !n.contains("//") &&
       !n.exists(c => c < 0x20 || c == '*' || c == '%') && !n.equalsIgnoreCase("INBOX")
 }
 
-final case class AddressDto(
-  id: UUID,
-  address: String,
-  domainId: UUID,
-  userId: Option[UUID],
-  userName: Option[String],
-  forwardTo: List[String],
-  isPrimary: Boolean,
-  canSend: Boolean) derives Encoder.AsObject, Decoder
+final case class AddressDto(id: UUID,
+                            address: String,
+                            domainId: UUID,
+                            userId: Option[UUID],
+                            userName: Option[String],
+                            forwardTo: List[String],
+                            isPrimary: Boolean,
+                            canSend: Boolean) derives Encoder.AsObject, Decoder
 
-final case class MeDto(
-  id: UUID,
-  name: String,
-  email: Option[String],
-  avatarUrl: Option[String],
-  isAdmin: Boolean,
-  timezone: String,
-  addresses: List[AddressDto],
-  quotaBytes: Long,
-  usedBytes: Long,
-  via: String,
-  scopes: List[String],
-  appNames: Map[String, String] = Map.empty) derives Encoder.AsObject, Decoder
+final case class MeDto(id: UUID,
+                       name: String,
+                       email: Option[String],
+                       avatarUrl: Option[String],
+                       isAdmin: Boolean,
+                       timezone: String,
+                       addresses: List[AddressDto],
+                       quotaBytes: Long,
+                       usedBytes: Long,
+                       via: String,
+                       scopes: List[String],
+                       appNames: Map[String, String] = Map.empty) derives Encoder.AsObject, Decoder
 
-final case class UpdateMeReq(
-  name: Option[String],
-  timezone: Option[String]) derives Encoder.AsObject, Decoder
+final case class UpdateMeReq(name: Option[String], timezone: Option[String]) derives Encoder.AsObject, Decoder
 
-final case class VacationDto(
-  enabled: Boolean,
-  subject: String,
-  body: String,
-  startDate: Option[String],
-  endDate: Option[String],
-  contactsOnly: Boolean) derives Encoder.AsObject, Decoder
+final case class VacationDto(enabled: Boolean,
+                             subject: String,
+                             body: String,
+                             startDate: Option[String],
+                             endDate: Option[String],
+                             contactsOnly: Boolean) derives Encoder.AsObject, Decoder
 
 object VacationDto {
   val empty: VacationDto = VacationDto(false, "不在のお知らせ", "", None, None, false)
@@ -233,490 +203,392 @@ object VacationDto {
 
 /** 個人の設定（署名・自動返信・画像の表示・許可/拒否する差出人）. */
 /** undoSendSeconds: 送信を取り消せる時間（0 ならすぐ送る）. */
-final case class MailSettingsDto(
-  signature: String,
-  vacation: VacationDto,
-  alwaysShowImages: Boolean,
-  allowSenders: List[String],
-  blockSenders: List[String],
-  conversationView: Boolean,
-  pageSize: Int,
-  undoSendSeconds: Int = 10) derives Encoder.AsObject, Decoder
+final case class MailSettingsDto(signature: String,
+                                 vacation: VacationDto,
+                                 alwaysShowImages: Boolean,
+                                 allowSenders: List[String],
+                                 blockSenders: List[String],
+                                 conversationView: Boolean,
+                                 pageSize: Int,
+                                 undoSendSeconds: Int = 10) derives Encoder.AsObject, Decoder
 
 object MailSettingsDto {
   val default: MailSettingsDto = MailSettingsDto("", VacationDto.empty, false, Nil, Nil, true, 50)
 }
 
-final case class ContactDto(
-  address: String,
-  name: Option[String],
-  count: Int) derives Encoder.AsObject, Decoder
+final case class ContactDto(address: String, name: Option[String], count: Int) derives Encoder.AsObject, Decoder
 
 /** アドレス帳の1件. saved: 自分で保存したもの（false は宛先として使ったので自動で覚えたもの）. */
-final case class AddressBookDto(
-  address: String,
-  name: Option[String],
-  company: Option[String],
-  phone: Option[String],
-  note: Option[String],
-  saved: Boolean,
-  uses: Int,
-  lastUsed: Timestamp) derives Encoder.AsObject, Decoder
+final case class AddressBookDto(address: String,
+                                name: Option[String],
+                                company: Option[String],
+                                phone: Option[String],
+                                note: Option[String],
+                                saved: Boolean,
+                                uses: Int,
+                                lastUsed: Timestamp) derives Encoder.AsObject, Decoder
 
 /** 連絡先の保存（同じアドレスなら上書き）. */
-final case class SaveContactReq(
-  address: String,
-  name: Option[String],
-  company: Option[String],
-  phone: Option[String],
-  note: Option[String])
+final case class SaveContactReq(address: String,
+                                name: Option[String],
+                                company: Option[String],
+                                phone: Option[String],
+                                note: Option[String])
   derives Encoder.AsObject, Decoder
 
 // ---------------------------------------------------------------- メールボックス・メッセージ
 
-final case class MailboxDto(
-  id: UUID,
-  name: String,
-  specialUse: Option[String],
-  total: Int,
-  unread: Int,
-  subscribed: Boolean)
+final case class MailboxDto(id: UUID,
+                            name: String,
+                            specialUse: Option[String],
+                            total: Int,
+                            unread: Int,
+                            subscribed: Boolean)
   derives Encoder.AsObject, Decoder
 
-final case class CreateMailboxReq(
-  name: String) derives Encoder.AsObject, Decoder
-final case class RenameMailboxReq(
-  name: String) derives Encoder.AsObject, Decoder
+final case class CreateMailboxReq(name: String) derives Encoder.AsObject, Decoder
+final case class RenameMailboxReq(name: String) derives Encoder.AsObject, Decoder
 
-final case class MessageSummaryDto(
-  id: UUID,
-  mailboxId: UUID,
-  threadId: UUID,
-  subject: String,
-  from: Option[AddrDto],
-  to: List[AddrDto],
-  date: Timestamp,
-  preview: String,
-  seen: Boolean,
-  flagged: Boolean,
-  answered: Boolean,
-  draft: Boolean,
-  hasAttachments: Boolean,
-  size: Int,
-  threadCount: Int,
-  spamScore: Option[Double]) derives Encoder.AsObject, Decoder
+final case class MessageSummaryDto(id: UUID,
+                                   mailboxId: UUID,
+                                   threadId: UUID,
+                                   subject: String,
+                                   from: Option[AddrDto],
+                                   to: List[AddrDto],
+                                   date: Timestamp,
+                                   preview: String,
+                                   seen: Boolean,
+                                   flagged: Boolean,
+                                   answered: Boolean,
+                                   draft: Boolean,
+                                   hasAttachments: Boolean,
+                                   size: Int,
+                                   threadCount: Int,
+                                   spamScore: Option[Double]) derives Encoder.AsObject, Decoder
 
-final case class MessageListDto(
-  items: List[MessageSummaryDto],
-  total: Int,
-  offset: Int) derives Encoder.AsObject, Decoder
+final case class MessageListDto(items: List[MessageSummaryDto], total: Int, offset: Int) derives Encoder.AsObject,
+    Decoder
 
-final case class AttachmentDto(
-  part: String,
-  filename: String,
-  contentType: String,
-  size: Int,
-  inline: Boolean,
-  contentId: Option[String])
+final case class AttachmentDto(part: String,
+                               filename: String,
+                               contentType: String,
+                               size: Int,
+                               inline: Boolean,
+                               contentId: Option[String])
   derives Encoder.AsObject, Decoder
 
-final case class AuthResultDto(
-  spf: String,
-  dkim: String,
-  dmarc: String) derives Encoder.AsObject, Decoder
+final case class AuthResultDto(spf: String, dkim: String, dmarc: String) derives Encoder.AsObject, Decoder
 
-final case class MessageDetailDto(
-  summary: MessageSummaryDto,
-  cc: List[AddrDto],
-  bcc: List[AddrDto],
-  replyTo: List[AddrDto],
-  messageIdHeader: Option[String],
-  references: List[String],
-  html: Option[String],
-  text: String,
-  hasRemoteImages: Boolean,
-  attachments: List[AttachmentDto],
-  spamReport: Option[String],
-  auth: Option[AuthResultDto],
-  listUnsubscribe: Option[String],
-  mailboxName: String,
-  hasInvite: Boolean = false) derives Encoder.AsObject, Decoder
+final case class MessageDetailDto(summary: MessageSummaryDto,
+                                  cc: List[AddrDto],
+                                  bcc: List[AddrDto],
+                                  replyTo: List[AddrDto],
+                                  messageIdHeader: Option[String],
+                                  references: List[String],
+                                  html: Option[String],
+                                  text: String,
+                                  hasRemoteImages: Boolean,
+                                  attachments: List[AttachmentDto],
+                                  spamReport: Option[String],
+                                  auth: Option[AuthResultDto],
+                                  listUnsubscribe: Option[String],
+                                  mailboxName: String,
+                                  hasInvite: Boolean = false) derives Encoder.AsObject, Decoder
 
-final case class ThreadDto(
-  threadId: UUID,
-  subject: String,
-  messages: List[MessageDetailDto]) derives Encoder.AsObject, Decoder
+final case class ThreadDto(threadId: UUID, subject: String, messages: List[MessageDetailDto]) derives Encoder.AsObject,
+    Decoder
 
 /** まとめての変更（既読・スター・移動・迷惑メールの報告・削除）. */
-final case class UpdateMessagesReq(
-  ids: List[UUID],
-  seen: Option[Boolean],
-  flagged: Option[Boolean],
-  moveTo: Option[UUID],
-  spam: Option[Boolean],
-  delete: Option[Boolean]) derives Encoder.AsObject, Decoder
+final case class UpdateMessagesReq(ids: List[UUID],
+                                   seen: Option[Boolean],
+                                   flagged: Option[Boolean],
+                                   moveTo: Option[UUID],
+                                   spam: Option[Boolean],
+                                   delete: Option[Boolean]) derives Encoder.AsObject, Decoder
 
 object UpdateMessagesReq {
 
   /** 何も変えない要求（copy で変えたいものだけ指定する）. */
-  def of(
-    ids: List[UUID]
-  ): UpdateMessagesReq = UpdateMessagesReq(ids, None, None, None, None, None)
+  def of(ids: List[UUID]): UpdateMessagesReq = UpdateMessagesReq(ids, None, None, None, None, None)
 }
 
-final case class UpdatedDto(
-  count: Int) derives Encoder.AsObject, Decoder
+final case class UpdatedDto(count: Int) derives Encoder.AsObject, Decoder
 
-final case class UploadDto(
-  id: UUID,
-  filename: String,
-  contentType: String,
-  size: Long) derives Encoder.AsObject, Decoder
+final case class UploadDto(id: UUID, filename: String, contentType: String, size: Long) derives Encoder.AsObject,
+    Decoder
 
 /** メールを書く（送信・下書きの保存）. replyTo / forwardOf は元のメッセージ. */
-final case class ComposeReq(
-  from: String,
-  to: List[String],
-  cc: List[String],
-  bcc: List[String],
-  subject: String,
-  text: String,
-  html: Option[String],
-  uploadIds: List[UUID],
-  inReplyTo: Option[UUID],
-  forwardOf: Option[UUID],
-  draftId: Option[UUID])
+final case class ComposeReq(from: String,
+                            to: List[String],
+                            cc: List[String],
+                            bcc: List[String],
+                            subject: String,
+                            text: String,
+                            html: Option[String],
+                            uploadIds: List[UUID],
+                            inReplyTo: Option[UUID],
+                            forwardOf: Option[UUID],
+                            draftId: Option[UUID])
   derives Encoder.AsObject, Decoder
 
-final case class SentDto(
-  messageId: UUID,
-  queued: Int,
-  delivered: Int) derives Encoder.AsObject, Decoder
+final case class SentDto(messageId: UUID, queued: Int, delivered: Int) derives Encoder.AsObject, Decoder
 
 /** 予約送信（sendAt がなければ、取り消しの猶予の後に送る）. */
-final case class ScheduleReq(
-  req: ComposeReq,
-  sendAt: Option[Timestamp]) derives Encoder.AsObject, Decoder
+final case class ScheduleReq(req: ComposeReq, sendAt: Option[Timestamp]) derives Encoder.AsObject, Decoder
 
 /** 予約した送信. status: queued | sending | sent | failed | cancelled. */
-final case class ScheduledDto(
-  id: UUID,
-  sendAt: Timestamp,
-  subject: String,
-  to: List[String],
-  status: String,
-  error: Option[String])
+final case class ScheduledDto(id: UUID,
+                              sendAt: Timestamp,
+                              subject: String,
+                              to: List[String],
+                              status: String,
+                              error: Option[String])
   derives Encoder.AsObject, Decoder
 
 /** 取り消した予約（作成画面に戻す内容と、その添付）. */
-final case class ScheduledCancelDto(
-  req: ComposeReq,
-  uploads: List[UploadDto]) derives Encoder.AsObject, Decoder
+final case class ScheduledCancelDto(req: ComposeReq, uploads: List[UploadDto]) derives Encoder.AsObject, Decoder
 
 /** スヌーズ（until まで一覧に出さない）. */
-final case class SnoozeReq(
-  ids: List[UUID],
-  until: Option[Timestamp]) derives Encoder.AsObject, Decoder
-final case class DraftSavedDto(
-  draftId: UUID) derives Encoder.AsObject, Decoder
+final case class SnoozeReq(ids: List[UUID], until: Option[Timestamp]) derives Encoder.AsObject, Decoder
+final case class DraftSavedDto(draftId: UUID) derives Encoder.AsObject, Decoder
 
 /** 返信・転送の下書きの初期値. */
-final case class ComposeTemplateDto(
-  from: String,
-  to: List[String],
-  cc: List[String],
-  subject: String,
-  quotedText: String,
-  quotedHtml: String,
-  attachments: List[AttachmentDto]) derives Encoder.AsObject, Decoder
+final case class ComposeTemplateDto(from: String,
+                                    to: List[String],
+                                    cc: List[String],
+                                    subject: String,
+                                    quotedText: String,
+                                    quotedHtml: String,
+                                    attachments: List[AttachmentDto]) derives Encoder.AsObject, Decoder
 
 // ---------------------------------------------------------------- 振り分け・パスワード・APIキー
 
-final case class RuleConditionDto(
-  field: String,
-  op: String,
-  value: String,
-  header: Option[String]) derives Encoder.AsObject, Decoder
-final case class RuleActionDto(
-  kind: String,
-  arg: Option[String]) derives Encoder.AsObject, Decoder
+final case class RuleConditionDto(field: String, op: String, value: String, header: Option[String])
+  derives Encoder.AsObject, Decoder
+final case class RuleActionDto(kind: String, arg: Option[String]) derives Encoder.AsObject, Decoder
 
-final case class FilterRuleDto(
-  id: UUID,
-  name: String,
-  enabled: Boolean,
-  matchAll: Boolean,
-  conditions: List[RuleConditionDto],
-  actions: List[RuleActionDto],
-  position: Int) derives Encoder.AsObject, Decoder
+final case class FilterRuleDto(id: UUID,
+                               name: String,
+                               enabled: Boolean,
+                               matchAll: Boolean,
+                               conditions: List[RuleConditionDto],
+                               actions: List[RuleActionDto],
+                               position: Int) derives Encoder.AsObject, Decoder
 
-final case class FilterRuleReq(
-  name: String,
-  enabled: Boolean,
-  matchAll: Boolean,
-  conditions: List[RuleConditionDto],
-  actions: List[RuleActionDto])
+final case class FilterRuleReq(name: String,
+                               enabled: Boolean,
+                               matchAll: Boolean,
+                               conditions: List[RuleConditionDto],
+                               actions: List[RuleActionDto])
   derives Encoder.AsObject, Decoder
 
-final case class ReorderReq(
-  ids: List[UUID]) derives Encoder.AsObject, Decoder
+final case class ReorderReq(ids: List[UUID]) derives Encoder.AsObject, Decoder
 
-final case class AppPasswordDto(
-  id: UUID,
-  name: String,
-  prefix: String,
-  createdAt: Timestamp,
-  lastUsedAt: Option[Timestamp],
-  lastUsedIp: Option[String])
+final case class AppPasswordDto(id: UUID,
+                                name: String,
+                                prefix: String,
+                                createdAt: Timestamp,
+                                lastUsedAt: Option[Timestamp],
+                                lastUsedIp: Option[String])
   derives Encoder.AsObject, Decoder
-final case class CreateAppPasswordReq(
-  name: String) derives Encoder.AsObject, Decoder
-final case class CreatedAppPasswordDto(
-  password: String,
-  username: String,
-  info: AppPasswordDto) derives Encoder.AsObject, Decoder
+final case class CreateAppPasswordReq(name: String) derives Encoder.AsObject, Decoder
+final case class CreatedAppPasswordDto(password: String, username: String, info: AppPasswordDto)
+  derives Encoder.AsObject, Decoder
 
-final case class ApiKeyDto(
-  id: UUID,
-  name: String,
-  prefix: String,
-  scopes: List[String],
-  createdAt: Timestamp,
-  expiresAt: Option[Timestamp],
-  lastUsedAt: Option[Timestamp]) derives Encoder.AsObject, Decoder
-final case class CreateApiKeyReq(
-  name: String,
-  scopes: List[String],
-  expiresDays: Option[Int]) derives Encoder.AsObject, Decoder
+final case class ApiKeyDto(id: UUID,
+                           name: String,
+                           prefix: String,
+                           scopes: List[String],
+                           createdAt: Timestamp,
+                           expiresAt: Option[Timestamp],
+                           lastUsedAt: Option[Timestamp]) derives Encoder.AsObject, Decoder
+final case class CreateApiKeyReq(name: String, scopes: List[String], expiresDays: Option[Int]) derives Encoder.AsObject,
+    Decoder
 
 /** メールの取り込み（Gmail など）。kind: imap | file。status: queued | running | done | failed | cancelled. */
-final case class ImportJobDto(
-  id: UUID,
-  kind: String,
-  status: String,
-  source: String,
-  imported: Int,
-  skipped: Int,
-  failed: Int,
-  current: String,
-  error: Option[String],
-  createdAt: Timestamp,
-  finishedAt: Option[Timestamp]) derives Encoder.AsObject, Decoder
+final case class ImportJobDto(id: UUID,
+                              kind: String,
+                              status: String,
+                              source: String,
+                              imported: Int,
+                              skipped: Int,
+                              failed: Int,
+                              current: String,
+                              error: Option[String],
+                              createdAt: Timestamp,
+                              finishedAt: Option[Timestamp]) derives Encoder.AsObject, Decoder
 
 /** IMAP での取り込みを始める（Gmail なら imap.gmail.com:993 とアプリ パスワード）. */
-final case class ImapImportReq(
-  host: String,
-  port: Int,
-  user: String,
-  password: String) derives Encoder.AsObject, Decoder
-final case class FileImportReq(
-  name: String) derives Encoder.AsObject, Decoder
+final case class ImapImportReq(host: String, port: Int, user: String, password: String) derives Encoder.AsObject,
+    Decoder
+final case class FileImportReq(name: String) derives Encoder.AsObject, Decoder
 
 /** ファイルの取り込みで、1回に送ったメッセージの結果. */
-final case class ImportBatchDto(
-  imported: Int,
-  skipped: Int,
-  failed: Int) derives Encoder.AsObject, Decoder
-final case class CreatedApiKeyDto(
-  key: String,
-  info: ApiKeyDto) derives Encoder.AsObject, Decoder
+final case class ImportBatchDto(imported: Int, skipped: Int, failed: Int) derives Encoder.AsObject, Decoder
+final case class CreatedApiKeyDto(key: String, info: ApiKeyDto) derives Encoder.AsObject, Decoder
 
 // ---------------------------------------------------------------- 管理
 
-final case class DnsRecordDto(
-  kind: String,
-  name: String,
-  value: String,
-  purpose: String,
-  ok: Option[Boolean],
-  actual: Option[String])
+final case class DnsRecordDto(kind: String,
+                              name: String,
+                              value: String,
+                              purpose: String,
+                              ok: Option[Boolean],
+                              actual: Option[String])
   derives Encoder.AsObject, Decoder
 
-final case class DomainDto(
-  id: UUID,
-  name: String,
-  enabled: Boolean,
-  autoProvision: Boolean,
-  catchAll: Option[UUID],
-  dkimSelector: String,
-  addressCount: Int,
-  createdAt: Timestamp) derives Encoder.AsObject, Decoder
+final case class DomainDto(id: UUID,
+                           name: String,
+                           enabled: Boolean,
+                           autoProvision: Boolean,
+                           catchAll: Option[UUID],
+                           dkimSelector: String,
+                           addressCount: Int,
+                           createdAt: Timestamp) derives Encoder.AsObject, Decoder
 
-final case class CreateDomainReq(
-  name: String,
-  autoProvision: Boolean) derives Encoder.AsObject, Decoder
-final case class UpdateDomainReq(
-  enabled: Option[Boolean],
-  autoProvision: Option[Boolean],
-  catchAll: Option[Option[UUID]])
+final case class CreateDomainReq(name: String, autoProvision: Boolean) derives Encoder.AsObject, Decoder
+final case class UpdateDomainReq(enabled: Option[Boolean],
+                                 autoProvision: Option[Boolean],
+                                 catchAll: Option[Option[UUID]])
   derives Encoder.AsObject, Decoder
 
-final case class AdminUserDto(
-  id: UUID,
-  name: String,
-  email: Option[String],
-  isAdmin: Boolean,
-  disabled: Boolean,
-  linked: Boolean,
-  addresses: List[String],
-  usedBytes: Long,
-  quotaBytes: Long,
-  lastLoginAt: Option[Timestamp],
-  createdAt: Timestamp) derives Encoder.AsObject, Decoder
+final case class AdminUserDto(id: UUID,
+                              name: String,
+                              email: Option[String],
+                              isAdmin: Boolean,
+                              disabled: Boolean,
+                              linked: Boolean,
+                              addresses: List[String],
+                              usedBytes: Long,
+                              quotaBytes: Long,
+                              lastLoginAt: Option[Timestamp],
+                              createdAt: Timestamp) derives Encoder.AsObject, Decoder
 
 /** メールのユーザーを作る（IdP のメールアドレス email で最初にログインした人に結び付く）. */
-final case class CreateUserReq(
-  name: String,
-  address: String,
-  email: Option[String],
-  quotaMb: Option[Int]) derives Encoder.AsObject, Decoder
-final case class UpdateUserReq(
-  name: Option[String],
-  isAdmin: Option[Boolean],
-  disabled: Option[Boolean],
-  quotaMb: Option[Int])
+final case class CreateUserReq(name: String, address: String, email: Option[String], quotaMb: Option[Int])
+  derives Encoder.AsObject, Decoder
+final case class UpdateUserReq(name: Option[String],
+                               isAdmin: Option[Boolean],
+                               disabled: Option[Boolean],
+                               quotaMb: Option[Int])
   derives Encoder.AsObject, Decoder
 
 /** エージェント専用アカウント（skakapo などの外の AI エージェントが APIキーで使う。ログインはできない）. */
-final case class AgentDto(
-  id: UUID,
-  name: String,
-  disabled: Boolean,
-  createdAt: Timestamp,
-  addresses: List[String],
-  keys: List[ApiKeyDto])
+final case class AgentDto(id: UUID,
+                          name: String,
+                          disabled: Boolean,
+                          createdAt: Timestamp,
+                          addresses: List[String],
+                          keys: List[ApiKeyDto])
   derives Encoder.AsObject, Decoder
 
 /** address を指定すると、そのアドレス（送信できる主アドレス）も作る. */
-final case class CreateAgentReq(
-  name: String,
-  address: Option[String]) derives Encoder.AsObject, Decoder
-final case class UpdateAgentReq(
-  name: Option[String],
-  disabled: Option[Boolean]) derives Encoder.AsObject, Decoder
+final case class CreateAgentReq(name: String, address: Option[String]) derives Encoder.AsObject, Decoder
+final case class UpdateAgentReq(name: Option[String], disabled: Option[Boolean]) derives Encoder.AsObject, Decoder
 
-final case class AddressReq(
-  address: String,
-  userId: Option[UUID],
-  forwardTo: List[String],
-  canSend: Boolean) derives Encoder.AsObject, Decoder
+final case class AddressReq(address: String, userId: Option[UUID], forwardTo: List[String], canSend: Boolean)
+  derives Encoder.AsObject, Decoder
 
-final case class QueueItemDto(
-  id: UUID,
-  sender: String,
-  recipient: String,
-  status: String,
-  attempts: Int,
-  nextAttemptAt: Timestamp,
-  lastError: Option[String],
-  createdAt: Timestamp) derives Encoder.AsObject, Decoder
+final case class QueueItemDto(id: UUID,
+                              sender: String,
+                              recipient: String,
+                              status: String,
+                              attempts: Int,
+                              nextAttemptAt: Timestamp,
+                              lastError: Option[String],
+                              createdAt: Timestamp) derives Encoder.AsObject, Decoder
 
-final case class AuditDto(
-  id: Long,
-  at: Timestamp,
-  user: Option[String],
-  via: String,
-  action: String,
-  target: Option[String],
-  ip: Option[String],
-  detail: Json) derives Encoder.AsObject, Decoder
+final case class AuditDto(id: Long,
+                          at: Timestamp,
+                          user: Option[String],
+                          via: String,
+                          action: String,
+                          target: Option[String],
+                          ip: Option[String],
+                          detail: Json) derives Encoder.AsObject, Decoder
 
-final case class StatsDto(
-  users: Int,
-  domains: Int,
-  messages: Long,
-  bytes: Long,
-  queued: Int,
-  failed: Int,
-  received24h: Int,
-  junk24h: Int,
-  rejected24h: Int,
-  sent24h: Int) derives Encoder.AsObject, Decoder
+final case class StatsDto(users: Int,
+                          domains: Int,
+                          messages: Long,
+                          bytes: Long,
+                          queued: Int,
+                          failed: Int,
+                          received24h: Int,
+                          junk24h: Int,
+                          rejected24h: Int,
+                          sent24h: Int) derives Encoder.AsObject, Decoder
 
 /** 画面の初期化に使う設定（メールソフトの設定の案内を含む）. */
-final case class ClientConfigDto(
-  devLogin: Boolean,
-  version: String,
-  hostname: String,
-  imapPort: Option[Int],
-  imapsPort: Option[Int],
-  pop3Port: Option[Int],
-  pop3sPort: Option[Int],
-  submissionPort: Option[Int],
-  smtpsPort: Option[Int],
-  maxMessageMb: Int)
+final case class ClientConfigDto(devLogin: Boolean,
+                                 version: String,
+                                 hostname: String,
+                                 imapPort: Option[Int],
+                                 imapsPort: Option[Int],
+                                 pop3Port: Option[Int],
+                                 pop3sPort: Option[Int],
+                                 submissionPort: Option[Int],
+                                 smtpsPort: Option[Int],
+                                 maxMessageMb: Int)
   derives Encoder.AsObject, Decoder
 
 /** ログイン後などに戻る先として使ってよいパス（同じサイトのパスだけ。//evil や /\evil・制御文字は外へ飛ぶので不可）。 */
 object SafePath {
-  def isLocal(
-    p: String
-  ): Boolean = p.startsWith("/") && !p.startsWith("//") && !p.startsWith("/\\") && !p.exists(_ < 0x20)
+  def isLocal(p: String): Boolean = p.startsWith("/") && !p.startsWith("//") && !p.startsWith("/\\") &&
+    !p.exists(_ < 0x20)
 }
 
 /** DMARC の集計レポート（一覧）. passing は DKIM か SPF が pass の通数. */
-final case class DmarcReportDto(
-  id: UUID,
-  domain: String,
-  orgName: String,
-  reportId: String,
-  policy: String,
-  begin: Timestamp,
-  end: Timestamp,
-  total: Long,
-  passing: Long,
-  authenticated: Boolean,
-  receivedAt: Timestamp) derives Encoder.AsObject, Decoder
+final case class DmarcReportDto(id: UUID,
+                                domain: String,
+                                orgName: String,
+                                reportId: String,
+                                policy: String,
+                                begin: Timestamp,
+                                end: Timestamp,
+                                total: Long,
+                                passing: Long,
+                                authenticated: Boolean,
+                                receivedAt: Timestamp) derives Encoder.AsObject, Decoder
 
 /** DMARC の集計レポートの1行（送信元の IP ごと）. */
-final case class DmarcRowDto(
-  sourceIp: String,
-  count: Long,
-  disposition: String,
-  dkim: String,
-  spf: String,
-  headerFrom: String,
-  envelopeFrom: Option[String],
-  dkimDomains: List[String],
-  spfDomains: List[String]) derives Encoder.AsObject, Decoder
+final case class DmarcRowDto(sourceIp: String,
+                             count: Long,
+                             disposition: String,
+                             dkim: String,
+                             spf: String,
+                             headerFrom: String,
+                             envelopeFrom: Option[String],
+                             dkimDomains: List[String],
+                             spfDomains: List[String]) derives Encoder.AsObject, Decoder
 
 /** 会議の招待（メールの中の iCalendar）. myStatus は自分の返事（ACCEPTED・TENTATIVE・DECLINED・NEEDS-ACTION）. */
-final case class InviteAttendeeDto(
-  address: String,
-  name: Option[String],
-  partstat: Option[String]) derives Encoder.AsObject, Decoder
-final case class InviteDto(
-  method: String,
-  summary: String,
-  description: String,
-  location: String,
-  allDay: Boolean,
-  start: Timestamp,
-  end: Timestamp,
-  organizer: Option[AddrDto],
-  attendees: List[InviteAttendeeDto],
-  me: Option[String],
-  myStatus: Option[String],
-  recurring: Boolean,
-  canReply: Boolean,
-  canAddToCalendar: Boolean) derives Encoder.AsObject, Decoder
-final case class InviteReplyReq(
-  partstat: String) derives Encoder.AsObject, Decoder
-final case class CalendarAddedDto(
-  url: String) derives Encoder.AsObject, Decoder
+final case class InviteAttendeeDto(address: String, name: Option[String], partstat: Option[String])
+  derives Encoder.AsObject, Decoder
+final case class InviteDto(method: String,
+                           summary: String,
+                           description: String,
+                           location: String,
+                           allDay: Boolean,
+                           start: Timestamp,
+                           end: Timestamp,
+                           organizer: Option[AddrDto],
+                           attendees: List[InviteAttendeeDto],
+                           me: Option[String],
+                           myStatus: Option[String],
+                           recurring: Boolean,
+                           canReply: Boolean,
+                           canAddToCalendar: Boolean) derives Encoder.AsObject, Decoder
+final case class InviteReplyReq(partstat: String) derives Encoder.AsObject, Decoder
+final case class CalendarAddedDto(url: String) derives Encoder.AsObject, Decoder
 
 /** 兄弟のサービスとの連携の状態. skuakaUrl はサーバーに設定された skuaka（なければ連携できない）. */
-final case class IntegrationsDto(
-  skuakaUrl: Option[String],
-  skuakaConnected: Boolean) derives Encoder.AsObject, Decoder
-final case class TokenReq(
-  token: String) derives Encoder.AsObject, Decoder
+final case class IntegrationsDto(skuakaUrl: Option[String], skuakaConnected: Boolean) derives Encoder.AsObject, Decoder
+final case class TokenReq(token: String) derives Encoder.AsObject, Decoder
 
 /** 利用者が OAuth で許可した外部のサービス（skakapo など）。設定の画面で確認・取り消しができる. */
-final case class OAuthGrantDto(
-  clientId: String,
-  name: String,
-  scopes: List[String],
-  createdAt: Timestamp,
-  lastUsedAt: Option[Timestamp])
+final case class OAuthGrantDto(clientId: String,
+                               name: String,
+                               scopes: List[String],
+                               createdAt: Timestamp,
+                               lastUsedAt: Option[Timestamp])
   derives Encoder.AsObject, Decoder

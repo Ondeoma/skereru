@@ -8,19 +8,15 @@ import java.nio.charset.StandardCharsets
 import java.util.Base64
 
 /** POP3 のセッション（RFC 1939 + STLS・UIDL・TOP・SASL PLAIN）。受信トレイだけを扱う。 */
-final class Pop3Session(
-  conn: Conn,
-  cfg: MailConfig,
-  tls: Option[TlsHolder],
-  b: Bridge,
-  mail: MailStore,
-  blobs: skereru.storage.Blobs,
-  auth: MailAuth) {
+final class Pop3Session(conn: Conn,
+                        cfg: MailConfig,
+                        tls: Option[TlsHolder],
+                        b: Bridge,
+                        mail: MailStore,
+                        blobs: skereru.storage.Blobs,
+                        auth: MailAuth) {
 
-  private final case class Item(
-    uid: Long,
-    size: Int,
-    blobId: String)
+  private final case class Item(uid: Long, size: Int, blobId: String)
 
   private var user: Option[User] = None
   private var box: Option[Mailbox] = None
@@ -29,12 +25,8 @@ final class Pop3Session(
   private var pendingUser: Option[String] = None
   private var errors = 0
 
-  private def ok(
-    s: String = ""
-  ): Unit = conn.write(s"+OK $s\r\n")
-  private def fail(
-    s: String
-  ): Unit = {
+  private def ok(s: String = ""): Unit = conn.write(s"+OK $s\r\n")
+  private def fail(s: String): Unit = {
     errors += 1
     conn.write(s"-ERR $s\r\n")
     if errors >= 10 then throw new java.io.EOFException()
@@ -97,40 +89,21 @@ final class Pop3Session(
               ok(s"${live.size} ${live.map(_._2.size).sum}")
             case ("LIST", Some(_)) => listing(
                 arg,
-                (
-                  _,
-                  i
-                ) => i.size.toString
+                (_, i) => i.size.toString
               )
             case ("UIDL", Some(_)) => listing(
                 arg,
-                (
-                  _,
-                  i
-                ) => s"${box.get.uidvalidity}-${i.uid}"
+                (_, i) => s"${box.get.uidvalidity}-${i.uid}"
               )
-            case ("RETR", Some(_)) => msg(arg).foreach(
-                (
-                  _,
-                  i
-                ) => send(i, None)
-              )
+            case ("RETR", Some(_)) => msg(arg).foreach((_, i) => send(i, None))
             case ("TOP", Some(_)) =>
               val p = arg.split(" ")
               p.lift(1).flatMap(_.toIntOption).filter(_ >= 0) match {
                 case None => fail("Syntax: TOP msg n")
-                case Some(n) => msg(p(0)).foreach(
-                    (
-                      _,
-                      i
-                    ) => send(i, Some(n))
-                  )
+                case Some(n) => msg(p(0)).foreach((_, i) => send(i, Some(n)))
               }
             case ("DELE", Some(_)) => msg(arg).foreach {
-                (
-                  n,
-                  _
-                ) => deleted += n; ok(s"message $n deleted")
+                (n, _) => deleted += n; ok(s"message $n deleted")
               }
             case ("RSET", Some(_)) => deleted.clear(); ok()
             case (_, None) => fail("Not authenticated")
@@ -139,10 +112,7 @@ final class Pop3Session(
       }
   }
 
-  private def login(
-    u: String,
-    p: String
-  ): Unit =
+  private def login(u: String, p: String): Unit =
     b.run(auth.login(u, p, conn.clientIp, "pop3")) match {
       case Left(_) => fail("[AUTH] Authentication failed")
       case Right(usr) =>
@@ -156,50 +126,23 @@ final class Pop3Session(
         ok(s"Logged in, ${items.size} messages")
     }
 
-  private def visible: Vector[(Int, Item)] = items.zipWithIndex.map(
-    (
-      i,
-      k
-    ) => (k + 1, i)
-  ).filterNot(
-    (
-      n,
-      _
-    ) => deleted.contains(n)
-  )
+  private def visible: Vector[(Int, Item)] =
+    items.zipWithIndex.map((i, k) => (k + 1, i)).filterNot((n, _) => deleted.contains(n))
 
-  private def msg(
-    arg: String
-  ): Option[(Int, Item)] =
+  private def msg(arg: String): Option[(Int, Item)] =
     arg.trim.toIntOption.flatMap(n => visible.find(_._1 == n)) match {
       case None => fail("No such message"); None
       case some => some
     }
 
-  private def listing(
-    arg: String,
-    f: (Int, Item) => String
-  ): Unit =
+  private def listing(arg: String, f: (Int, Item) => String): Unit =
     if arg.nonEmpty then
-      msg(arg).foreach(
-        (
-          n,
-          i
-        ) => ok(s"$n ${f(n, i)}")
-      )
+      msg(arg).foreach((n, i) => ok(s"$n ${f(n, i)}"))
     else
-      conn.write("+OK\r\n" + visible.map(
-        (
-          n,
-          i
-        ) => s"$n ${f(n, i)}\r\n"
-      ).mkString + ".\r\n")
+      conn.write("+OK\r\n" + visible.map((n, i) => s"$n ${f(n, i)}\r\n").mkString + ".\r\n")
 
   /** メッセージを送る（行頭の . は .. にする）。lines があれば本文の先頭 n 行まで。 */
-  private def send(
-    i: Item,
-    lines: Option[Int]
-  ): Unit = {
+  private def send(i: Item, lines: Option[Int]): Unit = {
     val raw = b.run(blobs.get(i.blobId)).getOrElse(Array.emptyByteArray)
     val text = new String(raw, StandardCharsets.ISO_8859_1)
     val body = lines match {

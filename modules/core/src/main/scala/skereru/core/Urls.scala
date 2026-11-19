@@ -16,10 +16,7 @@ object Urls {
     "x.gd"
   )
   private val Re = """https?://[^\s<>"')\]]+""".r
-  def find(
-    text: String
-  ): List[String] = Re.findAllIn(text).take(500).toList
-  def host(
-    u: String
-  ): Option[String] = scala.util.Try(java.net.URI.create(u).getHost).toOption.flatMap(Option(_)).map(_.toLowerCase)
+  def find(text: String): List[String] = Re.findAllIn(text).take(500).toList
+  def host(u: String): Option[String] =
+    scala.util.Try(java.net.URI.create(u).getHost).toOption.flatMap(Option(_)).map(_.toLowerCase)
 }

@@ -17,17 +17,15 @@ final case class OidcConfig(
   scopes: List[String] = List("openid", "profile", "email"))
 
 /** emailVerified: IdP がメールアドレスを確かめたか（アカウントの結び付け・メールボックスの自動作成はこれが true のときだけ）。 */
-final case class Identity(
-  sub: String,
-  email: Option[String],
-  name: String,
-  groups: List[String],
-  picture: Option[String] = None,
-  emailVerified: Boolean = false,
-  idToken: Option[String] = None)
+final case class Identity(sub: String,
+                          email: Option[String],
+                          name: String,
+                          groups: List[String],
+                          picture: Option[String] = None,
+                          emailVerified: Boolean = false,
+                          idToken: Option[String] = None)
 
-final case class ProviderMetadata(
-  issuer: String,
-  authorizationEndpoint: Uri,
-  tokenEndpoint: Uri,
-  endSessionEndpoint: Option[Uri] = None)
+final case class ProviderMetadata(issuer: String,
+                                  authorizationEndpoint: Uri,
+                                  tokenEndpoint: Uri,
+                                  endSessionEndpoint: Option[Uri] = None)

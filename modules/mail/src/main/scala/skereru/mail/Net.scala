@@ -4,7 +4,4 @@ package skereru.mail
 final class LineTooLong extends Exception("line too long")
 
 /** 待ち受けの設定。 */
-final case class Listener(
-  name: String,
-  port: Int,
-  implicitTls: Boolean)
+final case class Listener(name: String, port: Int, implicitTls: Boolean)

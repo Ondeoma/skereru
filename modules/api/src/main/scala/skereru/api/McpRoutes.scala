@@ -20,11 +20,8 @@ import skereru.shared.*
  * MCP（Model Context Protocol）のサーバー。POST /mcp に JSON-RPC を送る（Streamable HTTP。応答は JSON）。
  * 認証は APIキー（Bearer）だけ。各ツールは REST API をそのキーで内部から呼ぶので、権限・スコープ・監査は REST API と同じになる。
  */
-final class McpRoutes(
-  api: HttpRoutes[IO],
-  sessions: SessionAuth,
-  publicUrl: String,
-  version: String) extends Http4sDsl[IO] {
+final class McpRoutes(api: HttpRoutes[IO], sessions: SessionAuth, publicUrl: String, version: String)
+  extends Http4sDsl[IO] {
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     case req @ POST -> Root / "mcp" => postMcp(req)
@@ -32,9 +29,7 @@ final class McpRoutes(
     case GET -> Root / "api" / "endpoints" => getEndpoints()
   }
 
-  private def postMcp(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def postMcp(req: Request[IO]): IO[Response[IO]] =
     req.headers.get[Authorization] match {
       case Some(auth @ Authorization(Credentials.Token(AuthScheme.Bearer, _))) =>
         sessions.fromRequest(Request[IO](Method.GET, Uri.unsafeFromString("/mcp")).putHeaders(auth)).flatMap {
@@ -66,13 +61,8 @@ final class McpRoutes(
   private val base = publicUrl.stripSuffix("/")
   private val Versions = List("2025-06-18", "2025-03-26", "2024-11-05")
 
-  private final class Caller(
-    auth: Authorization) {
-    def apply(
-      method: Method,
-      uri: Uri,
-      body: Option[Json] = None
-    ): IO[Either[String, Json]] = {
+  private final class Caller(auth: Authorization) {
+    def apply(method: Method, uri: Uri, body: Option[Json] = None): IO[Either[String, Json]] = {
       val req0 = Request[IO](method, uri).putHeaders(auth, "X-Skereru-Mcp" -> "1")
       val req = body.fold(req0)(req0.withEntity(_))
       api.run(req).value.flatMap {
@@ -87,20 +77,16 @@ final class McpRoutes(
     }
   }
 
-  private def path(
-    segments: String*
-  ): Uri = Uri(path = Uri.Path(segments.toVector.map(Uri.Path.Segment(_)), absolute = true))
+  private def path(segments: String*): Uri =
+    Uri(path = Uri.Path(segments.toVector.map(Uri.Path.Segment(_)), absolute = true))
 
   private type Result = IO[Either[String, String]]
 
-  private final case class Tool(
-    name: String,
-    description: String,
-    schema: Json,
-    scope: String,
-    destructive: Boolean = false
-  )(
-    val run: (Caller, ACursor) => Result) {
+  private final case class Tool(name: String,
+                                description: String,
+                                schema: Json,
+                                scope: String,
+                                destructive: Boolean = false)(val run: (Caller, ACursor) => Result) {
     def json: Json = Json.obj(
       "name" -> name.asJson,
       "description" -> description.asJson,
@@ -113,59 +99,29 @@ final class McpRoutes(
     )
   }
 
-  private def schema(
-    required: List[String],
-    props: (String, Json)*
-  ): Json =
+  private def schema(required: List[String], props: (String, Json)*): Json =
     Json.obj("type" -> "object".asJson, "properties" -> Json.obj(props*), "required" -> required.asJson)
-  private def str(
-    d: String
-  ): Json = Json.obj("type" -> "string".asJson, "description" -> d.asJson)
-  private def int(
-    d: String
-  ): Json = Json.obj("type" -> "integer".asJson, "description" -> d.asJson)
-  private def bool(
-    d: String
-  ): Json = Json.obj("type" -> "boolean".asJson, "description" -> d.asJson)
-  private def strs(
-    d: String
-  ): Json =
+  private def str(d: String): Json = Json.obj("type" -> "string".asJson, "description" -> d.asJson)
+  private def int(d: String): Json = Json.obj("type" -> "integer".asJson, "description" -> d.asJson)
+  private def bool(d: String): Json = Json.obj("type" -> "boolean".asJson, "description" -> d.asJson)
+  private def strs(d: String): Json =
     Json.obj("type" -> "array".asJson, "items" -> Json.obj("type" -> "string".asJson), "description" -> d.asJson)
-  private def obj(
-    d: String
-  ): Json = Json.obj("type" -> "object".asJson, "description" -> d.asJson)
+  private def obj(d: String): Json = Json.obj("type" -> "object".asJson, "description" -> d.asJson)
 
-  private def need(
-    a: ACursor,
-    k: String
-  ): Either[String, String] = a.get[String](k).toOption.map(_.trim).filter(_.nonEmpty).toRight(s"$k を指定してください")
-  private def opt(
-    a: ACursor,
-    k: String
-  ): Option[String] = a.get[String](k).toOption.map(_.trim).filter(_.nonEmpty)
-  private def s(
-    j: Json,
-    k: String
-  ): String = j.hcursor.get[String](k).getOrElse("")
+  private def need(a: ACursor, k: String): Either[String, String] =
+    a.get[String](k).toOption.map(_.trim).filter(_.nonEmpty).toRight(s"$k を指定してください")
+  private def opt(a: ACursor, k: String): Option[String] = a.get[String](k).toOption.map(_.trim).filter(_.nonEmpty)
+  private def s(j: Json, k: String): String = j.hcursor.get[String](k).getOrElse("")
 
-  extension [A](
-    e: Either[String, A]
-  ) {
-    private def withArgs(
-      f: A => Result
-    ): Result = e.fold(err => IO.pure(Left(err)), f)
+  extension [A](e: Either[String, A]) {
+    private def withArgs(f: A => Result): Result = e.fold(err => IO.pure(Left(err)), f)
   }
-  extension (
-    r: IO[Either[String, Json]]
-  ) {
+  extension (r: IO[Either[String, Json]]) {
     private def asText: Result = r.map(_.map(_.spaces2))
   }
 
   /** メールボックスの名前（受信トレイ・Sent など）を ID にする。 */
-  private def mailboxId(
-    call: Caller,
-    name: String
-  ): IO[Either[String, String]] =
+  private def mailboxId(call: Caller, name: String): IO[Either[String, String]] =
     call(Method.GET, path("api", "mailboxes")).map(_.flatMap { j =>
       j.asArray.toList.flatten.find { b =>
         s(b, "name").equalsIgnoreCase(name) || s(b, "id") == name ||
@@ -175,9 +131,7 @@ final class McpRoutes(
       }.map(b => s(b, "id")).toRight(s"メールボックス「$name」がありません")
     })
 
-  private def line(
-    m: Json
-  ): String = {
+  private def line(m: Json): String = {
     val c = m.hcursor
     val from = c.downField(
       "from"
@@ -191,17 +145,11 @@ final class McpRoutes(
   }
 
   private val tools: List[Tool] = List(
-    Tool("get_me", "自分（この APIキーの持ち主）の情報・アドレス・容量・キーのスコープ。", schema(Nil), ApiScope.Read)(
-      (
-        call,
-        _
-      ) => call(Method.GET, path("api", "me")).asText
+    Tool("get_me", "自分（この APIキーの持ち主）の情報・アドレス・容量・キーのスコープ。", schema(Nil), ApiScope.Read)((call, _) =>
+      call(Method.GET, path("api", "me")).asText
     ),
     Tool("list_mailboxes", "メールボックスの一覧（件数・未読の数）。", schema(Nil), ApiScope.Read) {
-      (
-        call,
-        _
-      ) =>
+      (call, _) =>
         call(Method.GET, path("api", "mailboxes")).map(_.map(_.asArray.toList.flatten.map { b =>
           val name = b.hcursor.get[String]("specialUse").toOption.map(SpecialUse.label).getOrElse(s(b, "name"))
           s"- $name（${b.hcursor.get[Int]("total").getOrElse(0)} 件、未読 ${b.hcursor.get[Int]("unread").getOrElse(0)}） name=${s(b, "name")} id=${s(b, "id")}"
@@ -219,10 +167,7 @@ final class McpRoutes(
       ),
       ApiScope.Read
     ) {
-      (
-        call,
-        a
-      ) =>
+      (call, a) =>
         val box = opt(a, "mailbox").traverse(n => mailboxId(call, n)).map(_.sequence)
         box.flatMap {
           case Left(e) => IO.pure(Left(e))
@@ -233,12 +178,7 @@ final class McpRoutes(
               "limit" -> Some(a.get[Int]("limit").getOrElse(20).min(100).toString),
               "offset" -> a.get[Int]("offset").toOption.map(_.toString)
             ).collect { case (k, Some(v)) => k -> v }
-              .foldLeft(path("api", "messages"))(
-                (
-                  u,
-                  kv
-                ) => u.withQueryParam(kv._1, kv._2)
-              )
+              .foldLeft(path("api", "messages"))((u, kv) => u.withQueryParam(kv._1, kv._2))
             call(Method.GET, u).map(_.map { j =>
               val items = j.hcursor.downField("items").as[List[Json]].getOrElse(Nil)
               (s"${j.hcursor.get[Int]("total").getOrElse(0)} 件" :: items.map(line)).mkString("\n")
@@ -251,10 +191,7 @@ final class McpRoutes(
       schema(List("id"), "id" -> str("メッセージの ID")),
       ApiScope.Read
     ) {
-      (
-        call,
-        a
-      ) =>
+      (call, a) =>
         need(a, "id").withArgs(id =>
           call(Method.GET, path("api", "messages", id)).map(_.map { d =>
             val c = d.hcursor
@@ -277,10 +214,7 @@ final class McpRoutes(
       schema(List("id"), "id" -> str("スレッドの中のどれかのメッセージの ID")),
       ApiScope.Read
     ) {
-      (
-        call,
-        a
-      ) =>
+      (call, a) =>
         need(a, "id").withArgs(id =>
           call(Method.GET, path("api", "messages", id, "thread")).map(_.map { t =>
             t.hcursor.downField("messages").as[List[Json]].getOrElse(Nil).map { m =>
@@ -305,10 +239,7 @@ final class McpRoutes(
       ),
       ApiScope.Send
     ) {
-      (
-        call,
-        a
-      ) =>
+      (call, a) =>
         call(Method.GET, path("api", "me")).flatMap {
           case Left(e) => IO.pure(Left(e))
           case Right(me) =>
@@ -351,10 +282,7 @@ final class McpRoutes(
       ApiScope.Write,
       destructive = true
     ) {
-      (
-        call,
-        a
-      ) =>
+      (call, a) =>
         opt(a, "moveTo").traverse(n => mailboxId(call, n)).map(_.sequence).flatMap {
           case Left(e) => IO.pure(Left(e))
           case Right(to) =>
@@ -377,10 +305,7 @@ final class McpRoutes(
       schema(Nil),
       ApiScope.Read
     ) {
-      (
-        _,
-        _
-      ) =>
+      (_, _) =>
         IO.pure(Right(ApiCatalog.all.map(e => s"${e.method} ${e.path} — ${e.description}").mkString("\n")))
     },
     Tool(
@@ -394,15 +319,9 @@ final class McpRoutes(
       ),
       ApiScope.Read
     ) {
-      (
-        call,
-        a
-      ) =>
+      (call, a) =>
         (need(a, "method").map(_.toUpperCase), need(a, "path")).tupled.withArgs {
-          (
-            m,
-            p
-          ) =>
+          (m, p) =>
             (
               Method.fromString(m).toOption.filter(x => Set("GET", "POST", "PUT", "PATCH", "DELETE")(x.name)),
               Uri.fromString(p).toOption.filter(u =>
@@ -424,29 +343,16 @@ final class McpRoutes(
 
   private val byName = tools.map(t => t.name -> t).toMap
 
-  private def ok(
-    id: Json,
-    result: Json
-  ): Json = Json.obj("jsonrpc" -> "2.0".asJson, "id" -> id, "result" -> result)
-  private def rpcFail(
-    id: Json,
-    code: Int,
-    msg: String
-  ): Json =
+  private def ok(id: Json, result: Json): Json = Json.obj("jsonrpc" -> "2.0".asJson, "id" -> id, "result" -> result)
+  private def rpcFail(id: Json, code: Int, msg: String): Json =
     Json.obj("jsonrpc" -> "2.0".asJson, "id" -> id, "error" -> Json.obj("code" -> code.asJson, "message" -> msg.asJson))
-  private def toolResult(
-    r: Either[String, String]
-  ): Json =
+  private def toolResult(r: Either[String, String]): Json =
     Json.obj(
       "content" -> Json.arr(Json.obj("type" -> "text".asJson, "text" -> r.merge.asJson)),
       "isError" -> r.isLeft.asJson
     )
 
-  private def handle(
-    call: Caller,
-    s: AuthSession,
-    msg: Json
-  ): IO[Option[Json]] = {
+  private def handle(call: Caller, s: AuthSession, msg: Json): IO[Option[Json]] = {
     val c = msg.hcursor
     val params = c.downField("params")
     c.downField("id").focus match {
@@ -498,9 +404,7 @@ final class McpRoutes(
 /** MCP から変更させない API（読むことはできる）。 */
 object McpGuard {
   private val prefixes = List("/api/me", "/api/filters", "/api/admin")
-  def readOnly(
-    path: String
-  ): Boolean = {
+  def readOnly(path: String): Boolean = {
     val p = path.toLowerCase
     prefixes.exists(x => p == x || p.startsWith(x + "/"))
   }

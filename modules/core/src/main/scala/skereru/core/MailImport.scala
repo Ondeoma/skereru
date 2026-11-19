@@ -11,10 +11,7 @@ enum ImportTarget {
 }
 
 /** 1通の置き場所と印。targets が空なら取り込まない（Gmail のチャットなど）。 */
-final case class Placement(
-  targets: List[ImportTarget],
-  seen: Boolean,
-  flagged: Boolean)
+final case class Placement(targets: List[ImportTarget], seen: Boolean, flagged: Boolean)
 
 /** IMAP のフォルダの扱い。AllMail は Gmail の「すべてのメール」（ほかのフォルダにないもの＝アーカイブだけを取り込む）。 */
 enum ImapFolderPlan {
@@ -31,9 +28,7 @@ object MailImport {
   val Fallback = "取り込み"
 
   /** X-Gmail-Labels（Google Takeout の mbox）を分ける。"a,b" と、カンマを含むラベルの "\"x,y\"" に対応する。 */
-  def gmailLabels(
-    raw: String
-  ): List[String] = {
+  def gmailLabels(raw: String): List[String] = {
     val out = scala.collection.mutable.ListBuffer.empty[String]
     val sb = new StringBuilder
     var quoted = false
@@ -50,13 +45,9 @@ object MailImport {
    * Gmail のラベルから置き場所を決める。ラベルはそれぞれのフォルダに入れる（Gmail のラベルと同じ見え方）。
    * ゴミ箱・迷惑メールのものはそこだけ。どのラベルもなければアーカイブ。
    */
-  def gmailPlacement(
-    labels: List[String]
-  ): Placement = {
+  def gmailPlacement(labels: List[String]): Placement = {
     val ls = labels.map(_.trim)
-    def has(
-      l: String
-    ) = ls.exists(_.equalsIgnoreCase(l))
+    def has(l: String) = ls.exists(_.equalsIgnoreCase(l))
     val seen = !has("Unread")
     val flagged = has("Starred")
     if has("Chat") || has("Chats") then Placement(Nil, seen, flagged)
@@ -81,11 +72,7 @@ object MailImport {
   }
 
   /** IMAP のフォルダの扱い（SPECIAL-USE の属性と、名前）。 */
-  def imapFolder(
-    fullName: String,
-    delimiter: Char,
-    attrs: Set[String]
-  ): ImapFolderPlan = {
+  def imapFolder(fullName: String, delimiter: Char, attrs: Set[String]): ImapFolderPlan = {
     val a = attrs.map(_.toLowerCase)
     if a("\\noselect") || a("\\nonexistent") then ImapFolderPlan.Skip
     else if a("\\all") then ImapFolderPlan.AllMail
@@ -101,10 +88,7 @@ object MailImport {
   }
 
   /** ほかのサービスのフォルダ名を、このサーバーで使える名前にする（区切りは "/"。使えない名前は「取り込み/…」）。 */
-  def folderName(
-    name: String,
-    delimiter: Char
-  ): String = {
+  def folderName(name: String, delimiter: Char): String = {
     val parts = name.split(java.util.regex.Pattern.quote(delimiter.toString)).toList
       .map(_.filterNot(c => c < 0x20 || c == '*' || c == '%' || c == '/').trim).filter(_.nonEmpty)
     val n = parts.mkString("/").take(200)

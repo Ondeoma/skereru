@@ -10,27 +10,25 @@ import org.xml.sax.{ErrorHandler, SAXParseException}
 import scala.util.control.NonFatal
 
 /** DMARC 集計レポートの1行（record）。dkim・spf は policy_evaluated の結果（pass か fail）。 */
-final case class DmarcRow(
-  sourceIp: String,
-  count: Long,
-  disposition: String,
-  dkim: String,
-  spf: String,
-  headerFrom: String,
-  envelopeFrom: Option[String],
-  dkimDomains: List[String],
-  spfDomains: List[String])
+final case class DmarcRow(sourceIp: String,
+                          count: Long,
+                          disposition: String,
+                          dkim: String,
+                          spf: String,
+                          headerFrom: String,
+                          envelopeFrom: Option[String],
+                          dkimDomains: List[String],
+                          spfDomains: List[String])
 
 /** DMARC 集計レポート（RFC 7489 付録 C、rua で届くもの）。 */
-final case class DmarcAggregate(
-  orgName: String,
-  email: Option[String],
-  reportId: String,
-  domain: String,
-  policy: String,
-  begin: Instant,
-  end: Instant,
-  rows: List[DmarcRow]) {
+final case class DmarcAggregate(orgName: String,
+                                email: Option[String],
+                                reportId: String,
+                                domain: String,
+                                policy: String,
+                                begin: Instant,
+                                end: Instant,
+                                rows: List[DmarcRow]) {
   def total: Long = rows.map(_.count).sum
 
   /** DMARC に合格した通数（DKIM か SPF のどちらかが pass）。 */
@@ -61,9 +59,7 @@ object DmarcReport {
   private val ZipTypes = Set("application/zip", "application/x-zip", "application/x-zip-compressed")
 
   /** 報告のメール（raw）から、添付（.xml・.xml.gz・.zip、または本文そのものの XML）を探して読む。読めなければ Left(理由)。 */
-  def fromMessage(
-    raw: Array[Byte]
-  ): Either[String, DmarcAggregate] =
+  def fromMessage(raw: Array[Byte]): Either[String, DmarcAggregate] =
     try {
       val root = Mime.parse(raw)
       val candidates = root.leaves().map(_._2).filter(isCandidate)
@@ -82,9 +78,7 @@ object DmarcReport {
       }
     } catch case NonFatal(e) => Left(s"メールを読めません: ${e.getMessage}")
 
-  private def isCandidate(
-    p: MimePart
-  ): Boolean = {
+  private def isCandidate(p: MimePart): Boolean = {
     val name = p.filename.map(_.toLowerCase).getOrElse("")
     name.endsWith(".xml") || name.endsWith(".gz") || name.endsWith(".zip") ||
     XmlTypes(p.mimeType) || GzipTypes(p.mimeType) || ZipTypes(p.mimeType) ||
@@ -93,9 +87,7 @@ object DmarcReport {
   }
 
   /** 添付の中身（gzip・zip・XML のどれか。先頭のバイトで見分ける）を読む。 */
-  def fromBytes(
-    data: Array[Byte]
-  ): Either[String, DmarcAggregate] =
+  def fromBytes(data: Array[Byte]): Either[String, DmarcAggregate] =
     try
       if data.length >= 2 && (data(0) & 0xff) == 0x1f && (data(1) & 0xff) == 0x8b then
         readLimited(new GZIPInputStream(new ByteArrayInputStream(data))).flatMap(parseXml)
@@ -106,9 +98,7 @@ object DmarcReport {
     catch case NonFatal(e) => Left(s"展開できません: ${e.getMessage}")
 
   /** zip の中の最初の *.xml を取り出す（調べる項目は先頭から MaxZipEntries 個まで）。 */
-  private def fromZip(
-    data: Array[Byte]
-  ): Either[String, Array[Byte]] = {
+  private def fromZip(data: Array[Byte]): Either[String, Array[Byte]] = {
     val zin = new ZipInputStream(new ByteArrayInputStream(data))
     try {
       var seen = 0
@@ -126,9 +116,7 @@ object DmarcReport {
   }
 
   /** 上限まで読む。超えたら途中でやめて Left（全部を読み込んでから大きさを見ることはしない）。 */
-  private def readLimited(
-    in: InputStream
-  ): Either[String, Array[Byte]] = {
+  private def readLimited(in: InputStream): Either[String, Array[Byte]] = {
     val out = new ByteArrayOutputStream()
     val buf = new Array[Byte](64 * 1024)
     var total = 0L
@@ -159,22 +147,14 @@ object DmarcReport {
     val b = f.newDocumentBuilder()
     // 既定のエラー処理は標準エラーに書き出すので、黙って例外にする
     b.setErrorHandler(new ErrorHandler {
-      def warning(
-        e: SAXParseException
-      ): Unit = ()
-      def error(
-        e: SAXParseException
-      ): Unit = throw e
-      def fatalError(
-        e: SAXParseException
-      ): Unit = throw e
+      def warning(e: SAXParseException): Unit = ()
+      def error(e: SAXParseException): Unit = throw e
+      def fatalError(e: SAXParseException): Unit = throw e
     })
     b
   }
 
-  def parseXml(
-    xml: Array[Byte]
-  ): Either[String, DmarcAggregate] =
+  def parseXml(xml: Array[Byte]): Either[String, DmarcAggregate] =
     try
       if xml.length > MaxBytes then Left("XML が大きすぎます")
       else {
@@ -185,9 +165,7 @@ object DmarcReport {
       }
     catch case NonFatal(e) => Left(s"XML を読めません: ${e.getMessage}")
 
-  private def fromFeedback(
-    root: Element
-  ): Either[String, DmarcAggregate] = {
+  private def fromFeedback(root: Element): Either[String, DmarcAggregate] = {
     val meta = child(root, "report_metadata")
     val published = child(root, "policy_published")
     val records = children(root, "record")
@@ -211,16 +189,12 @@ object DmarcReport {
       ))
   }
 
-  private def row(
-    rec: Element
-  ): DmarcRow = {
+  private def row(rec: Element): DmarcRow = {
     val r = child(rec, "row")
     val eval = r.flatMap(child(_, "policy_evaluated"))
     val ids = child(rec, "identifiers")
     val auth = child(rec, "auth_results")
-    def result(
-      name: String
-    ) =
+    def result(name: String) =
       if eval.flatMap(text(_, name)).exists(_.equalsIgnoreCase("pass")) then "pass" else "fail"
     DmarcRow(
       sourceIp = r.flatMap(text(_, "source_ip")).getOrElse(""),
@@ -236,39 +210,24 @@ object DmarcReport {
   }
 
   /** Unix 秒を Instant に（範囲外や数字でないものは None）。 */
-  private def epoch(
-    s: String
-  ): Option[Instant] =
+  private def epoch(s: String): Option[Instant] =
     s.toLongOption.filter(v => v >= 0 && v < 253_402_300_800L).map(Instant.ofEpochSecond)
 
   /** 名前空間つき（DMARCbis の草案）でもそうでなくても、ローカル名で比べる。 */
-  private def nameOf(
-    n: Node
-  ): String = Option(n.getLocalName).getOrElse(n.getNodeName)
+  private def nameOf(n: Node): String = Option(n.getLocalName).getOrElse(n.getNodeName)
 
-  private def children(
-    e: Element,
-    name: String
-  ): List[Element] = {
+  private def children(e: Element, name: String): List[Element] = {
     val nodes = e.getChildNodes
     (0 until nodes.getLength).iterator.map(nodes.item).collect {
       case c: Element if nameOf(c) == name => c
     }.toList
   }
 
-  private def child(
-    e: Element,
-    name: String
-  ): Option[Element] = children(e, name).headOption
+  private def child(e: Element, name: String): Option[Element] = children(e, name).headOption
 
   /** 子要素の文字列（前後の空白を除き、長さを切り詰める。空なら None）。 */
-  private def text(
-    e: Element,
-    name: String
-  ): Option[String] =
+  private def text(e: Element, name: String): Option[String] =
     child(e, name).map(_.getTextContent).map(s => clip(s.trim)).filter(_.nonEmpty)
 
-  private def clip(
-    s: String
-  ): String = if s.length > MaxString then s.take(MaxString) else s
+  private def clip(s: String): String = if s.length > MaxString then s.take(MaxString) else s
 }

@@ -6,13 +6,9 @@ import java.nio.charset.StandardCharsets
 import java.util.Base64
 
 /** 外への SMTP の送信（MX を引いて、順に試す。STARTTLS は相手が対応していれば使う）。 */
-final class SmtpClient(
-  cfg: MailConfig,
-  dns: JndiDns) {
+final class SmtpClient(cfg: MailConfig, dns: JndiDns) {
 
-  private def hosts(
-    domain: String
-  ): Either[RcptResult, List[(String, Int)]] =
+  private def hosts(domain: String): Either[RcptResult, List[(String, Int)]] =
     cfg.relay match {
       case Some(r) => Right(List(r.host -> r.port))
       case None =>
@@ -34,12 +30,7 @@ final class SmtpClient(
   /** インターネットの外（内部のネットワーク）を指すアドレスか。 */
 
   /** 送る。宛先ごとの結果を返す（同じドメインの宛先をまとめて渡す）。 */
-  def deliver(
-    domain: String,
-    sender: String,
-    rcpts: List[String],
-    raw: Array[Byte]
-  ): Map[String, RcptResult] =
+  def deliver(domain: String, sender: String, rcpts: List[String], raw: Array[Byte]): Map[String, RcptResult] =
     hosts(domain) match {
       case Left(r) => rcpts.map(_ -> r).toMap
       case Right(hs) =>
@@ -66,14 +57,12 @@ final class SmtpClient(
         last
     }
 
-  private def attempt(
-    host: String,
-    port: Int,
-    sender: String,
-    rcpts: List[String],
-    raw: Array[Byte],
-    tryTls: Boolean
-  ): Map[String, RcptResult] = {
+  private def attempt(host: String,
+                      port: Int,
+                      sender: String,
+                      rcpts: List[String],
+                      raw: Array[Byte],
+                      tryTls: Boolean): Map[String, RcptResult] = {
     val relay = cfg.relay
     val implicitTls = relay.exists(_.tls == "ssl")
     // MX の名前が内部のアドレスを指していたら接続しない（中継サーバーは管理者が設定したものなので対象外）
@@ -99,13 +88,8 @@ final class SmtpClient(
         }
         (lines.last.take(3).toIntOption.getOrElse(0), lines.mkString(" / "))
       }
-      def cmd(
-        s: String
-      ): (Int, String) = { c.write(s + "\r\n"); read() }
-      def expect(
-        r: (Int, String),
-        ok: Int => Boolean
-      ): Unit =
+      def cmd(s: String): (Int, String) = { c.write(s + "\r\n"); read() }
+      def expect(r: (Int, String), ok: Int => Boolean): Unit =
         if !ok(r._1) then throw SmtpReplyError(r._1, r._2)
       try {
         expect(read(), _ == 220)
@@ -120,10 +104,7 @@ final class SmtpClient(
         } else if !c.isTls && (cfg.outboundRequireTls || relay.exists(_.tls == "starttls")) then
           throw SmtpReplyError(421, s"$host は STARTTLS に対応していません")
         relay.flatMap(r => r.user.map(_ -> r.password.getOrElse(""))).foreach {
-          (
-            u,
-            p
-          ) =>
+          (u, p) =>
             {
               val token = Base64.getEncoder.encodeToString(s"\u0000$u\u0000$p".getBytes(StandardCharsets.UTF_8))
               expect(cmd(s"AUTH PLAIN $token"), _ == 235)
@@ -147,10 +128,7 @@ final class SmtpClient(
           val (code, text) = read()
           cmd("QUIT")
           results.map {
-            (
-              r,
-              v
-            ) =>
+            (r, v) =>
               r ->
                 (if v != RcptResult.Ok then v
                  else if code / 100 == 2 then RcptResult.Ok
@@ -165,9 +143,7 @@ final class SmtpClient(
     } finally c.close()
   }
 
-  private def dotStuff(
-    raw: Array[Byte]
-  ): Array[Byte] = {
+  private def dotStuff(raw: Array[Byte]): Array[Byte] = {
     val s = new String(Compose.crlf(raw), StandardCharsets.ISO_8859_1)
     val stuffed = s.split("\r\n", -1).map(l => if l.startsWith(".") then "." + l else l).mkString("\r\n")
     (if stuffed.endsWith("\r\n") then stuffed else stuffed + "\r\n").getBytes(StandardCharsets.ISO_8859_1)

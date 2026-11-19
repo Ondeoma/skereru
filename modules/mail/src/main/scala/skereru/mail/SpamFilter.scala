@@ -13,45 +13,27 @@ import java.time.Instant
 import java.util.UUID
 
 /** 受信したメッセージの迷惑メール判定（送信ドメイン認証・DNSBL・ベイズ・ウイルス・規則）。 */
-final class SpamFilter(
-  dns: JndiDns,
-  queue: QueueStore,
-  cfg: MailConfig,
-  log: String => Unit) {
+final class SpamFilter(dns: JndiDns, queue: QueueStore, cfg: MailConfig, log: String => Unit) {
   private val spf = new Spf(dns)
   private val dkim = new Dkim(dns)
   private val dmarc = new Dmarc(dns)
-  private val clam = cfg.clamav.map(
-    (
-      h,
-      p
-    ) => new ClamAv(h, p)
-  )
+  private val clam = cfg.clamav.map((h, p) => new ClamAv(h, p))
 
-  final case class Result(
-    verdict: SpamVerdict,
-    auth: AuthResultDto,
-    header: String,
-    json: Json)
+  final case class Result(verdict: SpamVerdict, auth: AuthResultDto, header: String, json: Json)
 
-  def check(
-    raw: Array[Byte],
-    root: MimePart,
-    ip: InetAddress,
-    helo: String,
-    mailFrom: String,
-    bayesUser: Option[UUID],
-    isLocalDomain: String => Boolean
-  ): IO[Result] = {
+  def check(raw: Array[Byte],
+            root: MimePart,
+            ip: InetAddress,
+            helo: String,
+            mailFrom: String,
+            bayesUser: Option[UUID],
+            isLocalDomain: String => Boolean): IO[Result] = {
     val fromDomain = root.header("From").flatMap(Address.parseOne).map(_.domain).getOrElse("")
     val mfDomain = if mailFrom.isEmpty then helo else Address.domainOf(mailFrom)
     // 互いに関係しない問い合わせは並列にする（DMARC だけは SPF・DKIM の結果を使う）
     val authIO =
       (IO.blocking(spf.check(ip, mailFrom, helo)), IO.blocking(dkim.verify(raw, Instant.now()))).parTupled.flatMap {
-        (
-          spfRes,
-          dkimRes
-        ) =>
+        (spfRes, dkimRes) =>
           IO.blocking(if fromDomain.isEmpty then DmarcResult("none", "none", "")
           else dmarc.evaluate(fromDomain, spfRes, mfDomain, dkimRes))
             .map(d => (spfRes, dkimRes, d))
@@ -64,12 +46,8 @@ final class SpamFilter(
     (authIO, rdnsIO, blIO, virusIO).parTupled.flatMap {
       case ((spfRes, dkimRes, dmarcRes), rdns, bl, virus) => {
         val toks = Bayes.tokens(raw, root)
-        bayesUser.traverse(u => queue.bayesCounts(u, toks)).map(_.flatMap(
-          (
-            c,
-            s,
-            h
-          ) => skereru.core.Bayes.classify(c, s, h)
+        bayesUser.traverse(u => queue.bayesCounts(u, toks)).map(_.flatMap((c, s, h) =>
+          skereru.core.Bayes.classify(c, s, h)
         )).map { bayes =>
           {
             val in = SpamInput(

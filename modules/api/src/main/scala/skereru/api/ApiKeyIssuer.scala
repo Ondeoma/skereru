@@ -15,12 +15,10 @@ import java.util.UUID
 object ApiKeyIssuer {
 
   /** adminDenied: admin スコープを付けられないときの理由（付けられるなら None）。 */
-  def issue(
-    users: UserStore,
-    userId: UUID,
-    r: CreateApiKeyReq,
-    adminDenied: Option[AppError]
-  ): Res[CreatedApiKeyDto] = {
+  def issue(users: UserStore,
+            userId: UUID,
+            r: CreateApiKeyReq,
+            adminDenied: Option[AppError]): Res[CreatedApiKeyDto] = {
     val scopes = r.scopes.map(_.trim.toLowerCase).distinct
     val invalid: Option[AppError] =
       if r.name.trim.isEmpty then Some(AppError(ErrorCode.NameRequired))

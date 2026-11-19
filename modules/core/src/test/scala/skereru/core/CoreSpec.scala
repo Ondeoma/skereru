@@ -8,9 +8,7 @@ import java.time.{Instant, ZoneId}
 
 class CoreSpec extends munit.FunSuite {
 
-  private def bytes(
-    s: String
-  ) = s.replace("\n", "\r\n").getBytes(UTF_8)
+  private def bytes(s: String) = s.replace("\n", "\r\n").getBytes(UTF_8)
 
   private val multipart = bytes(
     """From: =?UTF-8?B?5bGx55SwIOWkqumDjg==?= <taro@example.com>
@@ -134,22 +132,13 @@ class CoreSpec extends munit.FunSuite {
   }
 
   /** 決まった応答を返す DNS。 */
-  final class FakeDns(
-    txts: Map[String, List[String]],
-    as: Map[String, List[String]] = Map.empty,
-    mxs: Map[String, List[(Int, String)]] = Map.empty) extends Dns {
-    def txt(
-      name: String
-    ) = Right(txts.getOrElse(name.toLowerCase, Nil))
-    def addresses(
-      name: String
-    ) = Right(as.getOrElse(name.toLowerCase, Nil).map(InetAddress.getByName))
-    def mx(
-      name: String
-    ) = Right(mxs.getOrElse(name.toLowerCase, Nil))
-    def ptr(
-      ip: InetAddress
-    ) = Right(Nil)
+  final class FakeDns(txts: Map[String, List[String]],
+                      as: Map[String, List[String]] = Map.empty,
+                      mxs: Map[String, List[(Int, String)]] = Map.empty) extends Dns {
+    def txt(name: String) = Right(txts.getOrElse(name.toLowerCase, Nil))
+    def addresses(name: String) = Right(as.getOrElse(name.toLowerCase, Nil).map(InetAddress.getByName))
+    def mx(name: String) = Right(mxs.getOrElse(name.toLowerCase, Nil))
+    def ptr(ip: InetAddress) = Right(Nil)
   }
 
   test("SPF: ip4・include・mx・redirect・softfail・ループの上限") {
@@ -164,9 +153,7 @@ class CoreSpec extends munit.FunSuite {
       mxs = Map("example.com" -> List(10 -> "mx1.example.com"))
     )
     val spf = new Spf(dns)
-    def ip(
-      s: String
-    ) = InetAddress.getByName(s)
+    def ip(s: String) = InetAddress.getByName(s)
     assertEquals(spf.check(ip("192.0.2.55"), "a@example.com", "h"), SpfResult.Pass)
     assertEquals(spf.check(ip("2001:db8::1"), "a@example.com", "h"), SpfResult.Pass)
     assertEquals(spf.check(ip("198.51.100.7"), "a@example.com", "h"), SpfResult.Pass)
@@ -262,22 +249,12 @@ class CoreSpec extends munit.FunSuite {
       !spamTok.contains("s:casino"))
     val counts = Map("casino" -> (40, 1), "bonus" -> (35, 2), "会議" -> (0, 40), "資料" -> (1, 30))
     assert(Bayes.classify(
-      counts.filter(
-        (
-          k,
-          _
-        ) => Set("casino", "bonus")(k)
-      ),
+      counts.filter((k, _) => Set("casino", "bonus")(k)),
       50,
       50
     ).exists(_ > 0.9))
     assert(Bayes.classify(
-      counts.filter(
-        (
-          k,
-          _
-        ) => Set("会議", "資料")(k)
-      ),
+      counts.filter((k, _) => Set("会議", "資料")(k)),
       50,
       50
     ).exists(_ < 0.1))
@@ -412,12 +389,7 @@ class CoreSpec extends munit.FunSuite {
   }
 
   /** 時間のかかりすぎ（計算が二乗になる正規表現など）を検出する。 */
-  private def fast[A](
-    label: String,
-    ms: Long = 2000
-  )(
-    f: => A
-  ): A = {
+  private def fast[A](label: String, ms: Long = 2000)(f: => A): A = {
     val t = System.nanoTime(); val r = f
     val took = (System.nanoTime() - t) / 1_000_000
     assert(took < ms, s"$label に ${took}ms かかった")
@@ -448,9 +420,7 @@ class CoreSpec extends munit.FunSuite {
     assertEquals(Address.parseOne("CEO <ceo@ourcorp.jp.>").map(_.domain), Some("ourcorp.jp"))
     assertEquals(Address.parseOne("ceo@ourcorp.jp;").map(_.domain), Some("ourcorp.jp"))
     val date = Dates.rfc5322(Instant.now(), ZoneId.of("Asia/Tokyo"))
-    def eval(
-      head: String
-    ) = {
+    def eval(head: String) = {
       val m = bytes(head + "To: a@ourcorp.jp\nSubject: x\nMessage-ID: <1@x>\nDate: " + date + "\n\nhi\n")
       SpamRules.evaluate(
         SpamInput(

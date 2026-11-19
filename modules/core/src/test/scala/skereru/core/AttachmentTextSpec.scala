@@ -15,16 +15,11 @@ class AttachmentTextSpec extends munit.FunSuite {
       |<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>""".stripMargin
   private val WEnd = "</w:body></w:document>"
 
-  private def zip(
-    entries: (String, Array[Byte])*
-  ): Array[Byte] = {
+  private def zip(entries: (String, Array[Byte])*): Array[Byte] = {
     val bo = new ByteArrayOutputStream
     val z = new ZipOutputStream(bo)
     entries.foreach {
-      (
-        name,
-        data
-      ) =>
+      (name, data) =>
         {
           z.putNextEntry(new ZipEntry(name))
           z.write(data)
@@ -42,9 +37,7 @@ class AttachmentTextSpec extends munit.FunSuite {
         WEnd).getBytes(UTF_8)
   )
 
-  private def b64(
-    b: Array[Byte]
-  ) = Base64.getMimeEncoder.encodeToString(b)
+  private def b64(b: Array[Byte]) = Base64.getMimeEncoder.encodeToString(b)
 
   private val message = (
     s"""From: a@example.com

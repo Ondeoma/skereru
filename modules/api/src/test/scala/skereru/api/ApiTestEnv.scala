@@ -29,9 +29,7 @@ trait ApiTestEnv extends CatsEffectSuite {
     )
   )
 
-  final case class Env(
-    app: HttpApp[IO],
-    users: UserStore)
+  final case class Env(app: HttpApp[IO], users: UserStore)
 
   private val envFixture = ResourceSuiteLocalFixture(
     "env",
@@ -85,11 +83,7 @@ trait ApiTestEnv extends CatsEffectSuite {
 
   override def munitFixtures = if dbCfg.isDefined then List(envFixture) else Nil
 
-  protected def withEnv(
-    name: String
-  )(
-    body: Env => IO[Unit]
-  ): Unit =
+  protected def withEnv(name: String)(body: Env => IO[Unit]): Unit =
     test(name)(if dbCfg.isEmpty then IO(assume(false, "TEST_DATABASE_URL が未設定")) else body(envFixture()))
 
   /** 認証の手段（Cookie のセッションか APIキー）。 */
@@ -101,13 +95,7 @@ trait ApiTestEnv extends CatsEffectSuite {
       key: String)
   }
 
-  protected def call(
-    e: Env,
-    who: Who,
-    method: Method,
-    path: String,
-    body: Option[Json] = None
-  ): IO[(Status, Json)] = {
+  protected def call(e: Env, who: Who, method: Method, path: String, body: Option[Json] = None): IO[(Status, Json)] = {
     val r0 = Request[IO](method, Uri.unsafeFromString(path))
     val r1 = who match {
       case Who.Cookie(n, v) => r0.addCookie(n, v).putHeaders("X-Skereru" -> "1")
@@ -119,11 +107,7 @@ trait ApiTestEnv extends CatsEffectSuite {
     )
   }
 
-  protected def devLogin(
-    e: Env,
-    name: String,
-    admin: Boolean
-  ): IO[Who.Cookie] = {
+  protected def devLogin(e: Env, name: String, admin: Boolean): IO[Who.Cookie] = {
     val req = Request[IO](Method.POST, Uri.unsafeFromString("/auth/dev-login")).putHeaders("X-Skereru" -> "1")
       .withEntity(Json.obj("name" -> name.asJson, "admin" -> admin.asJson))
     e.app.run(req).map { res =>
@@ -133,10 +117,7 @@ trait ApiTestEnv extends CatsEffectSuite {
   }
 
   /** MCP の tools/list のツールの名前。 */
-  protected def mcpTools(
-    e: Env,
-    who: Who
-  ): IO[List[String]] =
+  protected def mcpTools(e: Env, who: Who): IO[List[String]] =
     call(
       e,
       who,
@@ -144,10 +125,7 @@ trait ApiTestEnv extends CatsEffectSuite {
       "/mcp",
       Some(Json.obj("jsonrpc" -> "2.0".asJson, "id" -> 1.asJson, "method" -> "tools/list".asJson))
     ).map {
-      (
-        st,
-        j
-      ) =>
+      (st, j) =>
         {
           assertEquals(st, Status.Ok, j.noSpaces)
           j.hcursor.downField(

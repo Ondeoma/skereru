@@ -8,30 +8,24 @@ import skereru.db.*
 /** SMTP・IMAP・POP3 の待ち受けをまとめて起動する。 */
 object MailServers {
 
-  final case class Deps(
-    cfg: MailConfig,
-    tls: Option[TlsHolder],
-    delivery: Delivery,
-    auth: MailAuth,
-    mail: MailStore,
-    blobs: skereru.storage.Blobs,
-    queue: QueueStore,
-    dns: JndiDns,
-    log: String => Unit)
+  final case class Deps(cfg: MailConfig,
+                        tls: Option[TlsHolder],
+                        delivery: Delivery,
+                        auth: MailAuth,
+                        mail: MailStore,
+                        blobs: skereru.storage.Blobs,
+                        queue: QueueStore,
+                        dns: JndiDns,
+                        log: String => Unit)
 
-  def start(
-    d: Deps
-  ): Resource[IO, ConnLimits] = {
+  def start(d: Deps): Resource[IO, ConnLimits] = {
     import d.*
     val limits = new ConnLimits(cfg.maxConnections, cfg.maxConnectionsPerIp)
     for {
       disp <- Dispatcher.parallel[IO](await = false)
       b = new Bridge(disp)
       // 1つの接続（セッション）を1つのスパンにする（中の DB・配送などはその子）。接続中の数はメトリクスに出す
-      session = (
-        proto: String,
-        c: Conn
-      ) =>
+      session = (proto: String, c: Conn) =>
         (run: Bridge => Unit) =>
           b.tracking(s"skereru.$proto.connections")(b.span(
             s"$proto.session",
@@ -51,24 +45,9 @@ object MailServers {
         cfg.imapsPort.map(p => (Listener("imaps", p, true), imap)),
         cfg.pop3Port.map(p => (Listener("pop3", p, false), pop3)),
         cfg.pop3sPort.map(p => (Listener("pop3s", p, true), pop3))
-      ).flatten.filter(
-        (
-          l,
-          _
-        ) => !l.implicitTls || tls.isDefined
-      )
-      _ <- listeners.traverse_(
-        (
-          l,
-          h
-        ) => TcpServer.resource(l, cfg.bind, tls, limits, cfg.proxyFrom, log)(h)
-      )
-      _ <- Resource.eval(IO(log(s"[mail] listening: ${listeners.map(
-          (
-            l,
-            _
-          ) => s"${l.name}:${l.port}"
-        ).mkString(" ")}")))
+      ).flatten.filter((l, _) => !l.implicitTls || tls.isDefined)
+      _ <- listeners.traverse_((l, h) => TcpServer.resource(l, cfg.bind, tls, limits, cfg.proxyFrom, log)(h))
+      _ <- Resource.eval(IO(log(s"[mail] listening: ${listeners.map((l, _) => s"${l.name}:${l.port}").mkString(" ")}")))
     } yield limits
   }
 }

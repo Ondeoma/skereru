@@ -14,13 +14,12 @@ import skereru.shared.*
 import java.nio.charset.StandardCharsets
 
 /** メールボックス・メッセージ・送信・下書き・添付ファイル・変更の通知（SSE）。 */
-final class MailRoutes(
-  svc: MailService,
-  mail: MailStore,
-  schedules: ScheduleStore,
-  val sessions: SessionAuth,
-  cfg: ApiConfig,
-  changes: ChangeHub)
+final class MailRoutes(svc: MailService,
+                       mail: MailStore,
+                       schedules: ScheduleStore,
+                       val sessions: SessionAuth,
+                       cfg: ApiConfig,
+                       changes: ChangeHub)
   extends RouteSupport {
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
@@ -50,14 +49,10 @@ final class MailRoutes(
     case req @ GET -> Root / "api" / "stream" => getStream(req)
   }
 
-  private def getMailboxes(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def getMailboxes(req: Request[IO]): IO[Response[IO]] =
     authed(req)(s => svc.mailboxes(s.user.id).flatMap(Ok(_)))
 
-  private def postMailboxes(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def postMailboxes(req: Request[IO]): IO[Response[IO]] =
     authed(req)(s =>
       body[CreateMailboxReq](req)(r => {
         val n = r.name.trim
@@ -70,10 +65,7 @@ final class MailRoutes(
       })
     )
 
-  private def patchMailbox(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def patchMailbox(req: Request[IO], id: UUID): IO[Response[IO]] =
     authed(req)(s =>
       body[RenameMailboxReq](req)(r =>
         mail.mailbox(id).flatMap {
@@ -88,10 +80,7 @@ final class MailRoutes(
       )
     )
 
-  private def deleteMailbox(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def deleteMailbox(req: Request[IO], id: UUID): IO[Response[IO]] =
     authed(req)(s =>
       mail.mailbox(id).flatMap {
         case Some(b) if b.userId == s.user.id =>
@@ -100,15 +89,10 @@ final class MailRoutes(
       }
     )
 
-  private def postMailboxEmpty(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def postMailboxEmpty(req: Request[IO], id: UUID): IO[Response[IO]] =
     authed(req)(s => respond(svc.emptyMailbox(s.user.id, id))(n => Ok(UpdatedDto(n))))
 
-  private def getMessages(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def getMessages(req: Request[IO]): IO[Response[IO]] =
     authed(req)(s =>
       okJson(svc.list(
         s,
@@ -119,24 +103,15 @@ final class MailRoutes(
       ))
     )
 
-  private def getMessage(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def getMessage(req: Request[IO], id: UUID): IO[Response[IO]] =
     authed(req)(s => okJson(svc.detail(s.user.id, id)))
 
-  private def getMessageThread(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def getMessageThread(req: Request[IO], id: UUID): IO[Response[IO]] =
     authed(req)(s =>
       okJson(svc.thread(s.user.id, id, markRead = param(req, "markRead").contains("true") && s.can(ApiScope.Write)))
     )
 
-  private def getMessageHtml(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def getMessageHtml(req: Request[IO], id: UUID): IO[Response[IO]] =
     authed(req)(s =>
       respond(svc.html(s.user.id, id, images = param(req, "images").contains("1"))) {
         case None => err(ErrorCode.HtmlBodyMissing)
@@ -159,36 +134,21 @@ final class MailRoutes(
       }
     )
 
-  private def getMessageRaw(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def getMessageRaw(req: Request[IO], id: UUID): IO[Response[IO]] =
     authed(req)(s =>
-      respond(svc.raw(s.user.id, id))(
-        (
-          m,
-          raw
-        ) =>
-          bytes(
-            raw,
-            "message/rfc822",
-            disposition("attachment", (if m.subject.isEmpty then "message" else m.subject.take(80)) + ".eml")
-          )
+      respond(svc.raw(s.user.id, id))((m, raw) =>
+        bytes(
+          raw,
+          "message/rfc822",
+          disposition("attachment", (if m.subject.isEmpty then "message" else m.subject.take(80)) + ".eml")
+        )
       )
     )
 
-  private def getMessagePart(
-    req: Request[IO],
-    id: UUID,
-    path: String
-  ): IO[Response[IO]] =
+  private def getMessagePart(req: Request[IO], id: UUID, path: String): IO[Response[IO]] =
     authed(req)(s =>
       respond(svc.part(s.user.id, id, path)) {
-        (
-          name,
-          ct,
-          data
-        ) =>
+        (name, ct, data) =>
           {
             val inline = safeInline.contains(ct) && !param(req, "download").contains("1")
             bytes(
@@ -200,63 +160,40 @@ final class MailRoutes(
       }
     )
 
-  private def postMessagesUpdate(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def postMessagesUpdate(req: Request[IO]): IO[Response[IO]] =
     authed(req)(s => body[UpdateMessagesReq](req)(r => okJson(svc.update(s.user.id, r).map(_.map(UpdatedDto(_))))))
 
-  private def getMessageCompose(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def getMessageCompose(req: Request[IO], id: UUID): IO[Response[IO]] =
     authed(req)(s => okJson(svc.template(s, id, param(req, "mode").getOrElse("reply"))))
 
-  private def getDraft(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def getDraft(req: Request[IO], id: UUID): IO[Response[IO]] =
     authed(req)(s => okJson(svc.draft(s, id)))
 
-  private def postUploads(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def postUploads(req: Request[IO]): IO[Response[IO]] =
     authed(req)(s =>
-      withUpload(req, cfg.maxUploadBytes)(
-        (
-          name,
-          ct,
-          data
-        ) => respond(svc.upload(s.user.id, name, ct, data))(Created(_))
+      withUpload(req, cfg.maxUploadBytes)((name, ct, data) =>
+        respond(svc.upload(s.user.id, name, ct, data))(Created(_))
       )
     )
 
-  private def postSend(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def postSend(req: Request[IO]): IO[Response[IO]] =
     authed(req, ApiScope.Send)(s =>
       body[ComposeReq](req)(r =>
         respond(svc.send(s, r, ReqInfo.clientIp(req)))(sent => Created(sent))
       )
     )
 
-  private def postSchedule(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def postSchedule(req: Request[IO]): IO[Response[IO]] =
     authed(req, ApiScope.Send)(s =>
       body[ScheduleReq](req)(r =>
         respond(svc.schedule(s, r.req, r.sendAt, ReqInfo.clientIp(req)))(d => Created(d))
       )
     )
 
-  private def getScheduled(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def getScheduled(req: Request[IO]): IO[Response[IO]] =
     authed(req)(s => schedules.list(s.user.id).flatMap(Ok(_)))
 
-  private def postScheduledCancel(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def postScheduledCancel(req: Request[IO], id: UUID): IO[Response[IO]] =
     authed(req, ApiScope.Send)(s =>
       schedules.cancel(s.user.id, id).flatMap {
         case Some(r) =>
@@ -267,21 +204,15 @@ final class MailRoutes(
       }
     )
 
-  private def postMessagesSnooze(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def postMessagesSnooze(req: Request[IO]): IO[Response[IO]] =
     authed(req)(s =>
       body[SnoozeReq](req)(r => okJson(svc.snooze(s.user.id, r.ids, r.until).map(_.map(UpdatedDto(_)))))
     )
 
-  private def postDrafts(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def postDrafts(req: Request[IO]): IO[Response[IO]] =
     authed(req)(s => body[ComposeReq](req)(r => respond(svc.saveDraft(s, r))(d => Created(d))))
 
-  private def getStream(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def getStream(req: Request[IO]): IO[Response[IO]] =
     authed(req)(s =>
       changes.events(s.user.id).flatMap {
         case None => err(ErrorCode.EventStreamLimitReached)
@@ -295,10 +226,7 @@ final class MailRoutes(
   private val validName = MailText.validMailboxName
 
   /** ダウンロードのヘッダー（RFC 6266。日本語のファイル名は filename* で）。 */
-  private def disposition(
-    kind: String,
-    filename: String
-  ): (String, String) = {
+  private def disposition(kind: String, filename: String): (String, String) = {
     val ascii = filename.map(c => if c >= 0x20 && c < 0x7f && c != '"' && c != '\\' then c else '_')
     val enc = java.net.URLEncoder.encode(filename, StandardCharsets.UTF_8).replace("+", "%20")
     "Content-Disposition" -> s"""$kind; filename="$ascii"; filename*=UTF-8''$enc"""
@@ -306,11 +234,7 @@ final class MailRoutes(
 
   private val safeInline = Set("image/png", "image/jpeg", "image/gif", "image/webp")
 
-  private def bytes(
-    data: Array[Byte],
-    ct: String,
-    headers: (String, String)*
-  ): IO[Response[IO]] = {
+  private def bytes(data: Array[Byte], ct: String, headers: (String, String)*): IO[Response[IO]] = {
     val mt = MediaType.parse(ct).getOrElse(MediaType.application.`octet-stream`)
     IO.pure(
       Response[IO](Status.Ok).withEntity(data)(using EntityEncoder.byteArrayEncoder).withContentType(`Content-Type`(mt))

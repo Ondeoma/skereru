@@ -36,9 +36,7 @@ object Notify {
   def disable(): Unit = { scala.util.Try(dom.window.localStorage.removeItem(Key)); state := "off" }
 
   /** 受信トレイの未読の数が変わったとき（メールボックスを読み直すたびに呼ぶ）. */
-  def inboxUnread(
-    n: Int
-  ): Unit = {
+  def inboxUnread(n: Int): Unit = {
     badge(n)
     val grew = lastUnread.exists(n > _)
     lastUnread = Some(n)
@@ -69,18 +67,11 @@ object Notify {
     if (dom.document.title != want) dom.document.title = want
   }
 
-  private def badge(
-    n: Int
-  ): Unit = { count = n; apply() }
+  private def badge(n: Int): Unit = { count = n; apply() }
 
   /** 画面がタイトルを変えたら、未読の数を付け直す. */
   def install(): Unit = {
-    val obs = new dom.MutationObserver(
-      (
-        _,
-        _
-      ) => apply()
-    )
+    val obs = new dom.MutationObserver((_, _) => apply())
     Option(dom.document.querySelector("title")).foreach(t =>
       obs.observe(t, new dom.MutationObserverInit { childList = true; characterData = true; subtree = true })
     )

@@ -17,8 +17,7 @@ import java.time.ZoneId
 import java.util.UUID
 
 /** メールボックスとメッセージ。UID・MODSEQ はメールボックスの行を更新して払い出す（同時に書いても重ならない）。 */
-final class MailStore(
-  xa: Transactor[IO]) extends TxStore(xa) {
+final class MailStore(xa: Transactor[IO]) extends TxStore(xa) {
 
   /** 検索の語（種類ごと）の数の上限。 */
   private val MaxTerms = 10
@@ -31,12 +30,8 @@ final class MailStore(
   // ---------------------------------------------------------------- メールボックス
 
   /** 新しいユーザーの既定のメールボックスを作る（あれば何もしない）。 */
-  def ensureDefaults(
-    userId: UUID
-  ): IO[Unit] = tx(ensureDefaultsC(userId))
-  def ensureDefaultsC(
-    userId: UUID
-  ): ConnectionIO[Unit] =
+  def ensureDefaults(userId: UUID): IO[Unit] = tx(ensureDefaultsC(userId))
+  def ensureDefaultsC(userId: UUID): ConnectionIO[Unit] =
     SpecialUse.all.traverse_ { u =>
       sql"""insert into mailbox (id, user_id, name, special_use, uidvalidity) values (${UUID.randomUUID()}, $userId, ${SpecialUse.defaultName(
           u
@@ -46,40 +41,21 @@ final class MailStore(
 
   private def uidValidity(): Long = (System.currentTimeMillis() / 1000) & 0x7fffffffL
 
-  def mailboxes(
-    userId: UUID
-  ): IO[List[Mailbox]] = tx(mailboxesC(userId))
-  def mailboxesC(
-    userId: UUID
-  ): ConnectionIO[List[Mailbox]] =
+  def mailboxes(userId: UUID): IO[List[Mailbox]] = tx(mailboxesC(userId))
+  def mailboxesC(userId: UUID): ConnectionIO[List[Mailbox]] =
     (fr"select" ++ mcols ++ fr"from mailbox where user_id = $userId order by name").query[Mailbox].to[List]
 
-  def mailbox(
-    id: UUID
-  ): IO[Option[Mailbox]] = tx((fr"select" ++ mcols ++ fr"from mailbox where id = $id").query[Mailbox].option)
-  def mailboxByName(
-    userId: UUID,
-    name: String
-  ): IO[Option[Mailbox]] = tx(mailboxByNameC(userId, name))
-  def mailboxByNameC(
-    userId: UUID,
-    name: String
-  ): ConnectionIO[Option[Mailbox]] =
+  def mailbox(id: UUID): IO[Option[Mailbox]] =
+    tx((fr"select" ++ mcols ++ fr"from mailbox where id = $id").query[Mailbox].option)
+  def mailboxByName(userId: UUID, name: String): IO[Option[Mailbox]] = tx(mailboxByNameC(userId, name))
+  def mailboxByNameC(userId: UUID, name: String): ConnectionIO[Option[Mailbox]] =
     (fr"select" ++ mcols ++ fr"from mailbox where user_id = $userId and name = $name").query[Mailbox].option
-  def special(
-    userId: UUID,
-    use: String
-  ): IO[Option[Mailbox]] = tx(specialC(userId, use))
-  def specialC(
-    userId: UUID,
-    use: String
-  ): ConnectionIO[Option[Mailbox]] =
+  def special(userId: UUID, use: String): IO[Option[Mailbox]] = tx(specialC(userId, use))
+  def specialC(userId: UUID, use: String): ConnectionIO[Option[Mailbox]] =
     (fr"select" ++ mcols ++ fr"from mailbox where user_id = $userId and special_use = $use").query[Mailbox].option
 
   /** 件数と未読の件数（画面の一覧用）。 */
-  def mailboxDtos(
-    userId: UUID
-  ): IO[List[MailboxDto]] = tx(
+  def mailboxDtos(userId: UUID): IO[List[MailboxDto]] = tx(
     sql"""select b.id, b.name, b.special_use, coalesce(c.total, 0), coalesce(c.unread, 0), b.subscribed
           from mailbox b left join (
             select mailbox_id, count(*)::int as total, count(*) filter (where not ('\Seen' = any(flags)))::int as unread
@@ -87,10 +63,7 @@ final class MailStore(
           where b.user_id = $userId""".query[MailboxDto].to[List]
   )
 
-  def createMailbox(
-    userId: UUID,
-    name: String
-  ): IO[Either[AppError, Mailbox]] = tx(
+  def createMailbox(userId: UUID, name: String): IO[Either[AppError, Mailbox]] = tx(
     mailboxByNameC(userId, name).flatMap {
       case Some(_) => fail(AppError(ErrorCode.MailboxAlreadyExists, s"メールボックス「$name」はすでにあります"))
       case None =>
@@ -106,11 +79,7 @@ final class MailStore(
   )
 
   /** 名前を変える（子のメールボックス "名前/…" も変える。INBOX は変えられない）。 */
-  def renameMailbox(
-    userId: UUID,
-    from: String,
-    to: String
-  ): IO[Either[AppError, Unit]] = tx(
+  def renameMailbox(userId: UUID, from: String, to: String): IO[Either[AppError, Unit]] = tx(
     mailboxByNameC(userId, from).flatMap {
       case None => fail(AppError(ErrorCode.MailboxNotFound, s"メールボックス「$from」が見つかりません"))
       case Some(b) if b.specialUse.contains(SpecialUse.Inbox) => fail(AppError(ErrorCode.InboxRenameForbidden))
@@ -126,10 +95,7 @@ final class MailStore(
     }
   )
 
-  def deleteMailbox(
-    userId: UUID,
-    name: String
-  ): IO[Either[AppError, Unit]] = tx(
+  def deleteMailbox(userId: UUID, name: String): IO[Either[AppError, Unit]] = tx(
     mailboxByNameC(userId, name).flatMap {
       case None => fail(AppError(ErrorCode.MailboxNotFound, s"メールボックス「$name」が見つかりません"))
       case Some(b) if b.specialUse.isDefined => fail(AppError(ErrorCode.SpecialMailboxDeleteForbidden))
@@ -143,34 +109,21 @@ final class MailStore(
     }
   )
 
-  def subscribe(
-    userId: UUID,
-    name: String,
-    on: Boolean
-  ): IO[Int] = tx(
-    sql"update mailbox set subscribed = $on where user_id = $userId and name = $name".update.run
-  )
+  def subscribe(userId: UUID, name: String, on: Boolean): IO[Int] =
+    tx(sql"update mailbox set subscribed = $on where user_id = $userId and name = $name".update.run)
 
   /** 変化を知るための値（どれかのメールボックスが変わると変わる）。 */
-  def changeToken(
-    userId: UUID
-  ): IO[Long] = tx(
-    sql"select coalesce(sum(highest_modseq), 0)::int8 * 1000 + count(*) from mailbox where user_id = $userId".query[
+  def changeToken(userId: UUID): IO[Long] =
+    tx(sql"select coalesce(sum(highest_modseq), 0)::int8 * 1000 + count(*) from mailbox where user_id = $userId".query[
       Long
-    ].unique
-  )
+    ].unique)
 
   /** メールボックスの UID と MODSEQ を払い出す（n 個）。戻り値は最初の UID と MODSEQ。 */
-  private def allocate(
-    mailboxId: UUID,
-    n: Int
-  ): ConnectionIO[(Long, Long)] =
+  private def allocate(mailboxId: UUID, n: Int): ConnectionIO[(Long, Long)] =
     sql"""update mailbox set uidnext = uidnext + $n, highest_modseq = highest_modseq + 1 where id = $mailboxId returning uidnext - $n, highest_modseq"""
       .query[(Long, Long)].unique
 
-  private def bumpModseq(
-    mailboxId: UUID
-  ): ConnectionIO[Long] =
+  private def bumpModseq(mailboxId: UUID): ConnectionIO[Long] =
     sql"update mailbox set highest_modseq = highest_modseq + 1 where id = $mailboxId returning highest_modseq".query[
       Long
     ].unique
@@ -178,22 +131,15 @@ final class MailStore(
   // ---------------------------------------------------------------- 本体（blob）
 
   /** 本体を保存する（同じ内容は1つにまとめる。data が None なら外部のストレージに置いたもの）。 */
-  def putBlob(
-    id: String,
-    size: Long,
-    data: Option[Array[Byte]]
-  ): IO[Unit] = tx(
+  def putBlob(id: String, size: Long, data: Option[Array[Byte]]): IO[Unit] = tx(
     sql"""insert into blob (id, size, data) values ($id, $size, $data) on conflict (id) do update set created_at = now()""".update.run.void
   )
 
-  def blobData(
-    id: String
-  ): IO[Option[Option[Array[Byte]]]] = tx(sql"select data from blob where id = $id".query[Option[Array[Byte]]].option)
+  def blobData(id: String): IO[Option[Option[Array[Byte]]]] =
+    tx(sql"select data from blob where id = $id".query[Option[Array[Byte]]].option)
 
   /** どこからも使われていない古い本体を消す（消した ID を返す。外部のストレージからも消すため）。 */
-  def purgeBlobs(
-    limit: Int
-  ): IO[List[String]] = tx(
+  def purgeBlobs(limit: Int): IO[List[String]] = tx(
     sql"""delete from blob b where b.id in (
             select b2.id from blob b2 where b2.created_at < now() - interval '1 day'
               and not exists (select 1 from message m where m.blob_id = b2.id)
@@ -206,11 +152,7 @@ final class MailStore(
   // ---------------------------------------------------------------- メッセージの追加
 
   /** スレッドの ID（参照している Message-ID のメッセージと同じスレッド。なければ新しく）。 */
-  private def threadFor(
-    userId: UUID,
-    msgId: Option[String],
-    refs: List[String]
-  ): ConnectionIO[UUID] = {
+  private def threadFor(userId: UUID, msgId: Option[String], refs: List[String]): ConnectionIO[UUID] = {
     val ids = (refs ++ msgId.toList).distinct.take(50)
     if ids.isEmpty then FC.pure(UUID.randomUUID())
     else
@@ -219,11 +161,7 @@ final class MailStore(
       ].option.map(_.getOrElse(UUID.randomUUID()))
   }
 
-  def insertC(
-    userId: UUID,
-    mailboxId: UUID,
-    m: NewMessage
-  ): ConnectionIO[MsgMeta] =
+  def insertC(userId: UUID, mailboxId: UUID, m: NewMessage): ConnectionIO[MsgMeta] =
     for {
       thread <- threadFor(userId, m.messageId, m.references ++ m.inReplyTo.toList)
       alloc <- allocate(mailboxId, 1)
@@ -244,70 +182,42 @@ final class MailStore(
                 returning""" ++ cols).query[MsgMeta].unique
     } yield row
 
-  def insert(
-    userId: UUID,
-    mailboxId: UUID,
-    m: NewMessage
-  ): IO[MsgMeta] = tx(insertC(userId, mailboxId, m))
+  def insert(userId: UUID, mailboxId: UUID, m: NewMessage): IO[MsgMeta] = tx(insertC(userId, mailboxId, m))
 
   /** 書き出し（mbox）のための、uid の順の一部（after より後を limit 件）: (uid, blob_id, flags, internal_date)。 */
-  def exportPage(
-    mailboxId: UUID,
-    after: Long,
-    limit: Int
-  ): IO[List[(Long, String, List[String], java.time.Instant)]] = tx(
-    sql"select uid, blob_id, flags, internal_date from message where mailbox_id = $mailboxId and uid > $after order by uid limit $limit"
-      .query[(Long, String, List[String], java.time.Instant)].to[List]
-  )
+  def exportPage(mailboxId: UUID, after: Long, limit: Int): IO[List[(Long, String, List[String], java.time.Instant)]] =
+    tx(sql"select uid, blob_id, flags, internal_date from message where mailbox_id = $mailboxId and uid > $after order by uid limit $limit".query[
+      (Long, String, List[String], java.time.Instant)
+    ].to[List])
 
   /** 容量の上限（既定の値を含む）と使用量。 */
-  def quota(
-    userId: UUID,
-    defaultBytes: Long
-  ): IO[(Long, Long)] = tx(
-    sql"select coalesce(quota_bytes, $defaultBytes), used_bytes from app_user where id = $userId".query[(
+  def quota(userId: UUID, defaultBytes: Long): IO[(Long, Long)] =
+    tx(sql"select coalesce(quota_bytes, $defaultBytes), used_bytes from app_user where id = $userId".query[(
       Long,
       Long
-    )].option.map(_.getOrElse((defaultBytes, 0L)))
-  )
+    )].option.map(_.getOrElse((defaultBytes, 0L))))
 
   // ---------------------------------------------------------------- IMAP 向け
 
   /** メールボックスの UID とフラグ（UID 順）。 */
-  def uidFlags(
-    mailboxId: UUID
-  ): IO[Vector[UidFlags]] = tx(
+  def uidFlags(mailboxId: UUID): IO[Vector[UidFlags]] = tx(
     sql"select uid, flags, modseq from message where mailbox_id = $mailboxId order by uid".query[UidFlags].to[Vector]
   )
 
   /** uid 以下のメッセージの数（IMAP のセッションが消えたものに気づくため）。 */
-  def countUpTo(
-    mailboxId: UUID,
-    uid: Long
-  ): IO[Int] = tx(
-    sql"select count(*)::int from message where mailbox_id = $mailboxId and uid <= $uid".query[Int].unique
-  )
+  def countUpTo(mailboxId: UUID, uid: Long): IO[Int] =
+    tx(sql"select count(*)::int from message where mailbox_id = $mailboxId and uid <= $uid".query[Int].unique)
 
-  def uidsUpTo(
-    mailboxId: UUID,
-    uid: Long
-  ): IO[List[Long]] = tx(
-    sql"select uid from message where mailbox_id = $mailboxId and uid <= $uid order by uid".query[Long].to[List]
-  )
+  def uidsUpTo(mailboxId: UUID, uid: Long): IO[List[Long]] =
+    tx(sql"select uid from message where mailbox_id = $mailboxId and uid <= $uid order by uid".query[Long].to[List])
 
-  def changedSince(
-    mailboxId: UUID,
-    modseq: Long
-  ): IO[List[UidFlags]] = tx(
+  def changedSince(mailboxId: UUID, modseq: Long): IO[List[UidFlags]] = tx(
     sql"select uid, flags, modseq from message where mailbox_id = $mailboxId and modseq > $modseq order by uid".query[
       UidFlags
     ].to[List]
   )
 
-  def byUids(
-    mailboxId: UUID,
-    uids: Seq[Long]
-  ): IO[List[MsgMeta]] =
+  def byUids(mailboxId: UUID, uids: Seq[Long]): IO[List[MsgMeta]] =
     if uids.isEmpty then IO.pure(Nil)
     else
       tx((fr"select" ++ cols ++
@@ -316,13 +226,11 @@ final class MailStore(
       ].to[List])
 
   /** フラグの変更（mode: set | add | remove）。変わった行の UID・フラグ・MODSEQ を返す。 */
-  def storeFlags(
-    mailboxId: UUID,
-    uids: Seq[Long],
-    mode: String,
-    flags: List[String],
-    unchangedSince: Option[Long] = None
-  ): IO[List[UidFlags]] =
+  def storeFlags(mailboxId: UUID,
+                 uids: Seq[Long],
+                 mode: String,
+                 flags: List[String],
+                 unchangedSince: Option[Long] = None): IO[List[UidFlags]] =
     if uids.isEmpty then IO.pure(Nil)
     else
       tx {
@@ -342,10 +250,7 @@ final class MailStore(
       }
 
   /** \Deleted のメッセージを消す（uids を指定すればその中だけ）。消した UID を返す。 */
-  def expunge(
-    mailboxId: UUID,
-    uids: Option[Seq[Long]]
-  ): IO[List[Long]] = tx(
+  def expunge(mailboxId: UUID, uids: Option[Seq[Long]]): IO[List[Long]] = tx(
     bumpModseq(mailboxId) *>
       (fr"delete from message where mailbox_id = $mailboxId and ${skereru.shared.Flag.Deleted} = any(flags)" ++
         uids.fold(Fragment.empty)(u => fr"and uid = any(${u.toList})") ++
@@ -353,21 +258,11 @@ final class MailStore(
   )
 
   /** 別のメールボックスへ複製する。戻り値は (元の UID, 新しい UID) の組。 */
-  def copy(
-    from: UUID,
-    uids: Seq[Long],
-    to: UUID,
-    move: Boolean
-  ): IO[List[(Long, Long)]] =
+  def copy(from: UUID, uids: Seq[Long], to: UUID, move: Boolean): IO[List[(Long, Long)]] =
     if uids.isEmpty then IO.pure(Nil)
     else tx(copyC(from, uids, to, move))
 
-  private def copyC(
-    from: UUID,
-    uids: Seq[Long],
-    to: UUID,
-    move: Boolean
-  ): ConnectionIO[List[(Long, Long)]] =
+  private def copyC(from: UUID, uids: Seq[Long], to: UUID, move: Boolean): ConnectionIO[List[(Long, Long)]] =
     for {
       src <- sql"select uid from message where mailbox_id = $from and uid = any(${uids.toList}) order by uid".query[
         Long
@@ -377,17 +272,9 @@ final class MailStore(
         for {
           alloc <- allocate(to, src.size)
           (first, ms) = alloc
-          pairs = src.zipWithIndex.map(
-            (
-              u,
-              i
-            ) => (u, first + i)
-          )
+          pairs = src.zipWithIndex.map((u, i) => (u, first + i))
           _ <- pairs.traverse_ {
-            (
-              u,
-              nu
-            ) =>
+            (u, nu) =>
               sql"""insert into message (id, user_id, mailbox_id, uid, modseq, blob_id, size, internal_date, flags, subject, from_addr, from_name, to_addrs, cc_addrs,
                     sent_at, message_id, in_reply_to, thread_id, has_attachments, preview, search_text, spam_score, spam_report, auth_results)
                   select ${UUID.randomUUID()}, user_id, $to, $nu, $ms, blob_id, size, internal_date,
@@ -404,28 +291,14 @@ final class MailStore(
   // ---------------------------------------------------------------- IMAP の SEARCH
 
   /** SEARCH の条件を SQL にする（seq は呼び出し側で UID に置き換えておく）。 */
-  def search(
-    mailboxId: UUID,
-    key: SearchKey,
-    maxUid: Long,
-    zone: ZoneId
-  ): IO[List[Long]] = tx(
-    (fr"select m.uid from message m where m.mailbox_id = $mailboxId and" ++ cond(key, maxUid, zone) ++
-      fr"order by m.uid").query[Long].to[List]
-  )
+  def search(mailboxId: UUID, key: SearchKey, maxUid: Long, zone: ZoneId): IO[List[Long]] =
+    tx((fr"select m.uid from message m where m.mailbox_id = $mailboxId and" ++ cond(key, maxUid, zone) ++
+      fr"order by m.uid").query[Long].to[List])
 
-  private def like(
-    s: String
-  ): String = s"%${Like.escape(s.toLowerCase)}%"
+  private def like(s: String): String = s"%${Like.escape(s.toLowerCase)}%"
 
-  private def cond(
-    k: SearchKey,
-    maxUid: Long,
-    zone: ZoneId
-  ): Fragment = {
-    def day(
-      d: java.time.LocalDate
-    ) = d.atStartOfDay(zone).toInstant
+  private def cond(k: SearchKey, maxUid: Long, zone: ZoneId): Fragment = {
+    def day(d: java.time.LocalDate) = d.atStartOfDay(zone).toInstant
     k match {
       case SearchKey.All => fr"true"
       case SearchKey.Flag(f, true) => fr"$f = any(m.flags)"
@@ -467,33 +340,16 @@ final class MailStore(
     }
   }
 
-  private def uidCond(
-    set: SeqSet,
-    maxUid: Long
-  ): Fragment =
-    Sql.or(set.bounds(maxUid).map(
-      (
-        a,
-        b
-      ) => fr"m.uid between $a and $b"
-    ))
+  private def uidCond(set: SeqSet, maxUid: Long): Fragment =
+    Sql.or(set.bounds(maxUid).map((a, b) => fr"m.uid between $a and $b"))
 
   // ---------------------------------------------------------------- 画面・API 向け
 
-  def find(
-    userId: UUID,
-    id: UUID
-  ): IO[Option[MsgMeta]] = tx(findC(userId, id))
-  def findC(
-    userId: UUID,
-    id: UUID
-  ): ConnectionIO[Option[MsgMeta]] =
+  def find(userId: UUID, id: UUID): IO[Option[MsgMeta]] = tx(findC(userId, id))
+  def findC(userId: UUID, id: UUID): ConnectionIO[Option[MsgMeta]] =
     (fr"select" ++ cols ++ fr"from message m where m.id = $id and m.user_id = $userId").query[MsgMeta].option
 
-  def findMany(
-    userId: UUID,
-    ids: List[UUID]
-  ): IO[List[MsgMeta]] =
+  def findMany(userId: UUID, ids: List[UUID]): IO[List[MsgMeta]] =
     if ids.isEmpty then IO.pure(Nil)
     else
       tx((fr"select" ++ cols ++ fr"from message m where m.user_id = $userId and m.id = any($ids)").query[
@@ -501,31 +357,21 @@ final class MailStore(
       ].to[List])
 
   /** スレッドのメッセージ（ゴミ箱・迷惑メールは、開いているのがそこでなければ除く）。 */
-  def thread(
-    userId: UUID,
-    threadId: UUID,
-    includeTrash: Boolean
-  ): IO[List[MsgMeta]] = tx(
-    (fr"select" ++ cols ++
-      fr"from message m join mailbox b on b.id = m.mailbox_id where m.user_id = $userId and m.thread_id = $threadId" ++
-      (if includeTrash then Fragment.empty else fr"and coalesce(b.special_use, '') not in ('trash', 'junk')") ++
-      fr"order by m.internal_date, m.uid limit 200").query[MsgMeta].to[List]
-  )
+  def thread(userId: UUID, threadId: UUID, includeTrash: Boolean): IO[List[MsgMeta]] = tx((fr"select" ++ cols ++
+    fr"from message m join mailbox b on b.id = m.mailbox_id where m.user_id = $userId and m.thread_id = $threadId" ++
+    (if includeTrash then Fragment.empty else fr"and coalesce(b.special_use, '') not in ('trash', 'junk')") ++
+    fr"order by m.internal_date, m.uid limit 200").query[MsgMeta].to[List])
 
   /** 一覧（mailboxId か、全体の検索）。conversation のときはスレッドごとに最新の1通（と件数）。 */
-  def list(
-    userId: UUID,
-    mailboxId: Option[UUID],
-    q: MailQuery,
-    conversation: Boolean,
-    offset: Int,
-    limit: Int,
-    zone: ZoneId
-  )
+  def list(userId: UUID,
+           mailboxId: Option[UUID],
+           q: MailQuery,
+           conversation: Boolean,
+           offset: Int,
+           limit: Int,
+           zone: ZoneId)
     : IO[(List[(MsgMeta, Int)], Int)] = tx {
-    def day(
-      d: java.time.LocalDate
-    ) = d.atStartOfDay(zone).toInstant
+    def day(d: java.time.LocalDate) = d.atStartOfDay(zone).toInstant
     val inBox: Option[Fragment] = q.in.map { n =>
       val name = SpecialUse.all.find(u => SpecialUse.label(u) == n || u.equalsIgnoreCase(n))
       name.fold(
@@ -576,13 +422,7 @@ final class MailStore(
           .query[(MsgMeta, Int, Long)].to[List]
         total <- (fr"select count(distinct m.thread_id)::int from message m" ++ where).query[Int].unique
       } yield (
-        rows.map(
-          (
-            m,
-            n,
-            _
-          ) => (m, n)
-        ),
+        rows.map((m, n, _) => (m, n)),
         total
       )
     } else
@@ -596,12 +436,7 @@ final class MailStore(
   }
 
   /** メッセージのフラグをまとめて変える（画面・API 向け。メールボックスごとに MODSEQ を進める）。 */
-  def setFlags(
-    userId: UUID,
-    ids: List[UUID],
-    add: List[String],
-    remove: List[String]
-  ): IO[Int] =
+  def setFlags(userId: UUID, ids: List[UUID], add: List[String], remove: List[String]): IO[Int] =
     if ids.isEmpty then IO.pure(0)
     else
       tx(
@@ -616,31 +451,21 @@ final class MailStore(
       )
 
   /** メッセージを別のメールボックスへ移す（画面・API 向け）。 */
-  def moveMessages(
-    userId: UUID,
-    ids: List[UUID],
-    to: UUID
-  ): IO[Int] =
+  def moveMessages(userId: UUID, ids: List[UUID], to: UUID): IO[Int] =
     if ids.isEmpty then IO.pure(0)
     else
       tx(
         sql"select mailbox_id, uid from message where user_id = $userId and id = any($ids) and mailbox_id <> $to".query[
           (UUID, Long)
         ].to[List].flatMap { rows =>
-          rows.groupMap(_._1)(_._2).toList.traverse(
-            (
-              from,
-              uids
-            ) => copyC(from, uids, to, move = true).map(_.size)
-          ).map(_.sum)
+          rows.groupMap(
+            _._1
+          )(_._2).toList.traverse((from, uids) => copyC(from, uids, to, move = true).map(_.size)).map(_.sum)
         }
       )
 
   /** メッセージを消す（ゴミ箱を空にする・完全に削除する）。 */
-  def deleteMessages(
-    userId: UUID,
-    ids: List[UUID]
-  ): IO[Int] =
+  def deleteMessages(userId: UUID, ids: List[UUID]): IO[Int] =
     if ids.isEmpty then IO.pure(0)
     else
       tx(
@@ -651,36 +476,23 @@ final class MailStore(
       )
 
   /** メールボックスを空にする（ゴミ箱・迷惑メール）。 */
-  def emptyMailbox(
-    boxId: UUID
-  ): IO[Int] = tx(bumpModseq(boxId) *> sql"delete from message where mailbox_id = $boxId".update.run)
+  def emptyMailbox(boxId: UUID): IO[Int] =
+    tx(bumpModseq(boxId) *> sql"delete from message where mailbox_id = $boxId".update.run)
 
   /** 古いメッセージを消す（ゴミ箱・迷惑メールで days 日を過ぎたもの）。 */
-  def purgeOld(
-    use: String,
-    days: Int
-  ): IO[Int] = tx(
+  def purgeOld(use: String, days: Int): IO[Int] = tx(
     sql"""delete from message m using mailbox b where b.id = m.mailbox_id and b.special_use = $use and m.internal_date < now() - make_interval(days => $days)"""
       .update.run
   )
 
   // ---------------------------------------------------------------- 添付ファイルの一時保存
 
-  def createUpload(
-    userId: UUID,
-    filename: String,
-    contentType: String,
-    size: Long,
-    blobId: String
-  ): IO[UploadDto] = tx(
+  def createUpload(userId: UUID, filename: String, contentType: String, size: Long, blobId: String): IO[UploadDto] = tx(
     sql"""insert into upload (id, user_id, filename, content_type, size, blob_id) values (${UUID.randomUUID()}, $userId, $filename, $contentType, $size, $blobId)
           returning id, filename, content_type, size""".query[UploadDto].unique
   )
 
-  def uploads(
-    userId: UUID,
-    ids: List[UUID]
-  ): IO[List[Upload]] =
+  def uploads(userId: UUID, ids: List[UUID]): IO[List[Upload]] =
     if ids.isEmpty then IO.pure(Nil)
     else
       tx(
@@ -690,11 +502,11 @@ final class MailStore(
       )
 
   /** まだ使っていないアップロードの件数と合計の大きさ。 */
-  def pendingUploads(
-    userId: UUID
-  ): IO[(Long, Long)] = tx(
-    sql"select count(*), coalesce(sum(size), 0)::bigint from upload where user_id = $userId".query[(Long, Long)].unique
-  )
+  def pendingUploads(userId: UUID): IO[(Long, Long)] =
+    tx(sql"select count(*), coalesce(sum(size), 0)::bigint from upload where user_id = $userId".query[(
+      Long,
+      Long
+    )].unique)
 
   /** 古いアップロードを消す（予約送信で使うものは、送るまで残す）。 */
   def purgeUploads(): IO[Int] = tx(
@@ -705,11 +517,7 @@ final class MailStore(
   // ---------------------------------------------------------------- スヌーズ
 
   /** until まで一覧に出さない（None なら戻す）。 */
-  def snooze(
-    userId: UUID,
-    ids: List[UUID],
-    until: Option[java.time.Instant]
-  ): IO[Int] =
+  def snooze(userId: UUID, ids: List[UUID], until: Option[java.time.Instant]): IO[Int] =
     if ids.isEmpty then IO.pure(0)
     else tx(sql"update message set snoozed_until = $until where user_id = $userId and id = any($ids)".update.run)
 

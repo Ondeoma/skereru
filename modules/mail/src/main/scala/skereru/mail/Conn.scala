@@ -6,10 +6,7 @@ import java.nio.charset.StandardCharsets
 import javax.net.ssl.{SSLContext, SSLSocket}
 
 /** 接続（1行ずつの読み書き・STARTTLS）。読みかけのデータはタイムアウトしても失われない。 */
-final class Conn(
-  private var socket: Socket,
-  val remote: InetAddress,
-  val localPort: Int) {
+final class Conn(private var socket: Socket, val remote: InetAddress, val localPort: Int) {
   private var in: InputStream = socket.getInputStream
   private var out: OutputStream = socket.getOutputStream
   private val buf = new Array[Byte](16 * 1024)
@@ -33,9 +30,7 @@ final class Conn(
     case _ => ""
   }
 
-  def setTimeout(
-    ms: Int
-  ): Unit = socket.setSoTimeout(ms)
+  def setTimeout(ms: Int): Unit = socket.setSoTimeout(ms)
 
   private def fill(): Boolean =
     if pos < lim then true
@@ -52,13 +47,9 @@ final class Conn(
   def hasBuffered: Boolean = pos < lim
 
   /** 1行（CRLF・LF を除く）。max バイトを超えたら LineTooLong。接続が閉じたら None。 */
-  def readLine(
-    max: Int = 8192
-  ): Option[String] = readLineBytes(max).map(b => new String(b, StandardCharsets.UTF_8))
+  def readLine(max: Int = 8192): Option[String] = readLineBytes(max).map(b => new String(b, StandardCharsets.UTF_8))
 
-  def readLineBytes(
-    max: Int = 8192
-  ): Option[Array[Byte]] = {
+  def readLineBytes(max: Int = 8192): Option[Array[Byte]] = {
     var done = false
     var eof = false
     while !done && !eof do
@@ -91,9 +82,7 @@ final class Conn(
   }
 
   /** 改行を含めた1行（SMTP の DATA で、行末が CRLF かを確かめるため）。接続が閉じたら None。max を超えた分は切って返す。 */
-  def readRawLine(
-    max: Int
-  ): Option[Array[Byte]] = {
+  def readRawLine(max: Int): Option[Array[Byte]] = {
     val out = new ByteArrayOutputStream(256)
     var done = false
     while !done do
@@ -111,9 +100,7 @@ final class Conn(
   }
 
   /** ちょうど n バイト（IMAP のリテラル）。 */
-  def readBytes(
-    n: Int
-  ): Option[Array[Byte]] = {
+  def readBytes(n: Int): Option[Array[Byte]] = {
     // 宣言された大きさの配列を先に確保しない（届いていないデータのためにメモリを使わせない）
     val out = new ByteArrayOutputStream(math.min(n, 64 * 1024))
     var ok = true
@@ -127,15 +114,9 @@ final class Conn(
     Option.when(ok)(out.toByteArray)
   }
 
-  def write(
-    s: String
-  ): Unit = { out.write(s.getBytes(StandardCharsets.UTF_8)); out.flush() }
-  def writeBytes(
-    b: Array[Byte]
-  ): Unit = out.write(b)
-  def writeRaw(
-    s: String
-  ): Unit = out.write(s.getBytes(StandardCharsets.ISO_8859_1))
+  def write(s: String): Unit = { out.write(s.getBytes(StandardCharsets.UTF_8)); out.flush() }
+  def writeBytes(b: Array[Byte]): Unit = out.write(b)
+  def writeRaw(s: String): Unit = out.write(s.getBytes(StandardCharsets.ISO_8859_1))
   def flush(): Unit = out.flush()
 
   /**
@@ -143,10 +124,7 @@ final class Conn(
    * STARTTLS では読み込み済みの平文を捨てる（STARTTLS インジェクションの対策）。
    * 接続の直後から TLS のポート（993 など）では、PROXY ヘッダーと一緒に読み込んだ TLS の最初のデータを引き継ぐ（keepBuffered）。
    */
-  def startTls(
-    ctx: SSLContext,
-    keepBuffered: Boolean = false
-  ): Unit = {
+  def startTls(ctx: SSLContext, keepBuffered: Boolean = false): Unit = {
     val consumed =
       if keepBuffered && pos < lim then java.util.Arrays.copyOfRange(buf, pos, lim) else Array.emptyByteArray
     pos = 0; lim = 0; partial.reset()
@@ -165,10 +143,7 @@ final class Conn(
   }
 
   /** 外へ送るときの STARTTLS（client として）。verify なら証明書とホスト名を確かめる。 */
-  def startClientTls(
-    host: String,
-    verify: Boolean
-  ): Unit = {
+  def startClientTls(host: String, verify: Boolean): Unit = {
     pos = 0; lim = 0; partial.reset()
     val ctx = if verify then SSLContext.getDefault else Tls.trustAll
     val s = ctx.getSocketFactory.createSocket(socket, host, socket.getPort, true).asInstanceOf[SSLSocket]
@@ -224,23 +199,12 @@ object Conn {
   val MxSessionMs: Long = 30 * 60 * 1000L
 
   /** 接続先の Socket（client 側）。 */
-  def client(
-    host: String,
-    port: Int,
-    timeoutMs: Int
-  ): Conn = connect(new InetSocketAddress(host, port), timeoutMs)
+  def client(host: String, port: Int, timeoutMs: Int): Conn = connect(new InetSocketAddress(host, port), timeoutMs)
 
   /** 名前を引き直さずに、この IP へつなぐ。 */
-  def client(
-    ip: InetAddress,
-    port: Int,
-    timeoutMs: Int
-  ): Conn = connect(new InetSocketAddress(ip, port), timeoutMs)
+  def client(ip: InetAddress, port: Int, timeoutMs: Int): Conn = connect(new InetSocketAddress(ip, port), timeoutMs)
 
-  private def connect(
-    addr: InetSocketAddress,
-    timeoutMs: Int
-  ): Conn = {
+  private def connect(addr: InetSocketAddress, timeoutMs: Int): Conn = {
     val s = new Socket()
     s.connect(addr, timeoutMs)
     s.setSoTimeout(timeoutMs)

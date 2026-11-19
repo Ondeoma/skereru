@@ -6,11 +6,7 @@ import scala.collection.mutable.ListBuffer
 import scala.util.Try
 
 /** iCalendar のプロパティ（NAME;PARAM=…:VALUE）。raw は折り返しを戻した元の1行。 */
-final case class IcalProp(
-  name: String,
-  params: Map[String, String],
-  value: String,
-  raw: String)
+final case class IcalProp(name: String, params: Map[String, String], value: String, raw: String)
 
 /** 予定の日時（終日なら日付、そうでなければ時刻）。 */
 enum IcalTime {
@@ -20,25 +16,21 @@ enum IcalTime {
     instant: Instant)
 }
 
-final case class IcalPerson(
-  address: String,
-  name: Option[String],
-  partstat: Option[String])
+final case class IcalPerson(address: String, name: Option[String], partstat: Option[String])
 
 /** 会議の招待（iMIP。RFC 6047）。method は REQUEST・CANCEL・REPLY など。 */
-final case class Invite(
-  method: String,
-  uid: String,
-  summary: String,
-  description: String,
-  location: String,
-  start: IcalTime,
-  end: IcalTime,
-  organizer: Option[IcalPerson],
-  attendees: List[IcalPerson],
-  sequence: Int,
-  recurring: Boolean,
-  props: List[IcalProp]) {
+final case class Invite(method: String,
+                        uid: String,
+                        summary: String,
+                        description: String,
+                        location: String,
+                        start: IcalTime,
+                        end: IcalTime,
+                        organizer: Option[IcalPerson],
+                        attendees: List[IcalPerson],
+                        sequence: Int,
+                        recurring: Boolean,
+                        props: List[IcalProp]) {
   def allDay: Boolean = start.isInstanceOf[IcalTime.Day]
 }
 
@@ -48,9 +40,7 @@ object Ical {
   private val MaxBytes = 1024 * 1024
 
   /** 折り返し（行頭の空白・タブ）を戻して、行に分ける。 */
-  def unfold(
-    text: String
-  ): List[String] = {
+  def unfold(text: String): List[String] = {
     val out = ListBuffer.empty[String]
     val sb = new StringBuilder
     text.replace("\r\n", "\n").split("\n", -1).foreach { l =>
@@ -65,9 +55,7 @@ object Ical {
   }
 
   /** 1行を名前・パラメーター・値に分ける（引用符の中の : ; は区切りにしない）。 */
-  def prop(
-    line: String
-  ): Option[IcalProp] = {
+  def prop(line: String): Option[IcalProp] = {
     var quoted = false
     var colon = -1
     var i = 0
@@ -101,9 +89,7 @@ object Ical {
   }
 
   /** TEXT の値のエスケープを戻す。 */
-  def unescape(
-    v: String
-  ): String = {
+  def unescape(v: String): String = {
     val sb = new StringBuilder
     var i = 0
     while i < v.length do {
@@ -119,18 +105,13 @@ object Ical {
     sb.toString
   }
 
-  def escape(
-    v: String
-  ): String =
+  def escape(v: String): String =
     v.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\r\n", "\\n").replace("\n", "\\n")
 
   private val Basic = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss")
 
   /** DTSTART などの日時。TZID があればその地域の時刻、Z なら UTC、どちらもなければ zone の時刻とみなす。 */
-  def time(
-    p: IcalProp,
-    zone: ZoneId
-  ): Option[IcalTime] = {
+  def time(p: IcalProp, zone: ZoneId): Option[IcalTime] = {
     val v = p.value.trim
     if p.params.get("VALUE").exists(_.equalsIgnoreCase("DATE")) || v.length == 8 then
       Try(LocalDate.parse(v.take(8), DateTimeFormatter.BASIC_ISO_DATE)).toOption.map(IcalTime.Day(_))
@@ -143,17 +124,13 @@ object Ical {
   }
 
   /** DURATION（P1D・PT1H30M など）。 */
-  def duration(
-    v: String
-  ): Option[Duration] =
+  def duration(v: String): Option[Duration] =
     Try(Duration.parse(v.trim.replace("P0D", "PT0S"))).toOption.orElse {
       // java の Duration は日・時間だけ。週（P1W）は日にする
       "^P(\\d+)W$".r.findFirstMatchIn(v.trim).map(m => Duration.ofDays(m.group(1).toLong * 7))
     }
 
-  private def person(
-    p: IcalProp
-  ): IcalPerson =
+  private def person(p: IcalProp): IcalPerson =
     IcalPerson(
       p.value.trim.replaceFirst("(?i)^mailto:", "").toLowerCase,
       p.params.get("CN").filter(_.nonEmpty),
@@ -161,10 +138,7 @@ object Ical {
     )
 
   /** 招待を読む（最初の VEVENT）。zone は TZID のない時刻のタイムゾーン。 */
-  def parse(
-    text: String,
-    zone: ZoneId
-  ): Option[Invite] =
+  def parse(text: String, zone: ZoneId): Option[Invite] =
     if text.length > MaxBytes then None
     else
       Try {
@@ -185,9 +159,7 @@ object Ical {
             else if depth == 0 then ev += p
             i += 1
           }
-          def one(
-            n: String
-          ) = ev.find(_.name == n)
+          def one(n: String) = ev.find(_.name == n)
           for {
             uid <- one("UID").map(_.value.trim).filter(_.nonEmpty)
             start <- one("DTSTART").flatMap(time(_, zone))
@@ -221,9 +193,7 @@ object Ical {
       }.toOption.flatten
 
   /** 75 オクテットで折り返す（UTF-8 の文字の途中では切らない）。 */
-  def fold(
-    line: String
-  ): String = {
+  def fold(line: String): String = {
     val out = new StringBuilder
     var count = 0
     line.foreach { c =>
@@ -235,13 +205,7 @@ object Ical {
   }
 
   /** 招待への返事（METHOD:REPLY）。partstat: ACCEPTED・TENTATIVE・DECLINED。日時などは招待の行をそのまま使う。 */
-  def reply(
-    inv: Invite,
-    me: String,
-    myName: Option[String],
-    partstat: String,
-    now: Instant
-  ): String = {
+  def reply(inv: Invite, me: String, myName: Option[String], partstat: String, now: Instant): String = {
     val stamp = Basic.format(now.atZone(ZoneOffset.UTC)) + "Z"
     val copy =
       inv.props.filter(p => Set("DTSTART", "DTEND", "DURATION", "SUMMARY", "RECURRENCE-ID").contains(p.name)).map(_.raw)
@@ -262,11 +226,7 @@ object Ical {
   }
 
   /** メッセージの中の招待（text/calendar の部品か、.ics の添付）。 */
-  def find(
-    raw: Array[Byte],
-    root: MimePart,
-    zone: ZoneId
-  ): Option[Invite] =
+  def find(raw: Array[Byte], root: MimePart, zone: ZoneId): Option[Invite] =
     root.leaves().map(_._2).iterator.filter { p =>
       p.mimeType == "text/calendar" || p.mimeType == "application/ics" ||
       p.filename.exists(_.toLowerCase.endsWith(".ics"))

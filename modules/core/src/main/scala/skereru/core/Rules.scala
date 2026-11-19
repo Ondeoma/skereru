@@ -6,16 +6,13 @@ import skereru.shared.*
 object Rules {
 
   /** 規則の結果（移動先の名前・既読・スター・転送先・迷惑メールにしないか）。 */
-  final case class Outcome(
-    moveTo: Option[String],
-    markRead: Boolean,
-    flag: Boolean,
-    trash: Boolean,
-    forwards: List[String],
-    notSpam: Boolean) {
-    def merge(
-      o: Outcome
-    ): Outcome =
+  final case class Outcome(moveTo: Option[String],
+                           markRead: Boolean,
+                           flag: Boolean,
+                           trash: Boolean,
+                           forwards: List[String],
+                           notSpam: Boolean) {
+    def merge(o: Outcome): Outcome =
       Outcome(
         o.moveTo.orElse(moveTo),
         markRead || o.markRead,
@@ -29,21 +26,14 @@ object Rules {
   val empty: Outcome = Outcome(None, false, false, false, Nil, false)
 
   /** 条件と一致するか（大文字小文字は区別しない）。 */
-  def matches(
-    r: FilterRuleDto,
-    msg: Array[Byte],
-    root: MimePart,
-    envelopeTo: List[String]
-  ): Boolean =
+  def matches(r: FilterRuleDto, msg: Array[Byte], root: MimePart, envelopeTo: List[String]): Boolean =
     if r.conditions.isEmpty then false
     else {
       lazy val body = root.leaves().map(_._2).filter(_.mainType == "text").take(2).map { p =>
         val t = Mime.text(msg, p)
         if p.subType == "html" then Html.toText(t) else t
       }.mkString("\n").take(200_000).toLowerCase
-      def values(
-        c: RuleConditionDto
-      ): List[String] = c.field match {
+      def values(c: RuleConditionDto): List[String] = c.field match {
         case RuleField.From =>
           root.header("From").toList.flatMap(v => Address.parseList(v).flatMap(a => List(a.display, a.address)))
         case RuleField.To =>
@@ -61,9 +51,7 @@ object Rules {
           c.header.toList.flatMap(h => root.headers.filter(_.name.equalsIgnoreCase(h.trim)).map(_.decoded))
         case _ => Nil
       }
-      def test(
-        c: RuleConditionDto
-      ): Boolean = {
+      def test(c: RuleConditionDto): Boolean = {
         val v = c.value.trim.toLowerCase
         val vs = values(c).map(_.toLowerCase)
         c.op match {
@@ -79,20 +67,12 @@ object Rules {
     }
 
   /** 有効な規則を順に当てはめる（「以降の規則を適用しない」で止まる）。 */
-  def apply(
-    rules: List[FilterRuleDto],
-    msg: Array[Byte],
-    root: MimePart,
-    envelopeTo: List[String]
-  ): Outcome =
+  def apply(rules: List[FilterRuleDto], msg: Array[Byte], root: MimePart, envelopeTo: List[String]): Outcome =
     rules.filter(_.enabled).sortBy(_.position).foldLeft((empty, false)) { case ((acc, stopped), r) =>
       if stopped || !matches(r, msg, root, envelopeTo) then (acc, stopped)
       else {
         val o = r.actions.foldLeft(empty) {
-          (
-            o,
-            a
-          ) =>
+          (o, a) =>
             a.kind match {
               case RuleAction.Move => o.copy(moveTo = a.arg.map(_.trim).filter(_.nonEmpty))
               case RuleAction.MarkRead => o.copy(markRead = true)
@@ -108,9 +88,7 @@ object Rules {
     }._1
 
   /** 規則の入力の確認。 */
-  def validate(
-    r: FilterRuleReq
-  ): Either[String, FilterRuleReq] =
+  def validate(r: FilterRuleReq): Either[String, FilterRuleReq] =
     if r.name.trim.isEmpty then Left("名前を入力してください")
     else if r.conditions.isEmpty then Left("条件を1つ以上指定してください")
     else if r.conditions.size > 20 || r.actions.size > 10 then Left("条件・処理が多すぎます")

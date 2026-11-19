@@ -18,13 +18,12 @@ import skereru.shared.*
 import java.time.Instant
 
 /** ログイン（OIDC の Authorization Code + PKCE・開発用のログイン）とログアウト。 */
-final class AuthRoutes(
-  oidc: Option[OidcClient],
-  users: UserStore,
-  adminSvc: AdminService,
-  val sessions: SessionAuth,
-  cfg: ApiConfig,
-  mcfg: MailConfig)
+final class AuthRoutes(oidc: Option[OidcClient],
+                       users: UserStore,
+                       adminSvc: AdminService,
+                       val sessions: SessionAuth,
+                       cfg: ApiConfig,
+                       mcfg: MailConfig)
   extends RouteSupport {
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
@@ -37,9 +36,7 @@ final class AuthRoutes(
     case GET -> Root / "api" / "client-config" => getClientConfig()
   }
 
-  private def getAuthLogin(
-    req: Request[IO]
-  ): IO[Response[IO]] = {
+  private def getAuthLogin(req: Request[IO]): IO[Response[IO]] = {
     val back = safeReturn(param(req, "returnTo"))
     oidc match {
       case Some(o) =>
@@ -53,9 +50,7 @@ final class AuthRoutes(
     }
   }
 
-  private def getAuthCallback(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def getAuthCallback(req: Request[IO]): IO[Response[IO]] =
     (oidc, param(req, "code"), param(req, "state")) match {
       case (Some(_), Some(_), Some(state)) if !sameBrowser(req, state) =>
         err(ErrorCode.LoginBrowserMismatch)
@@ -95,27 +90,18 @@ final class AuthRoutes(
       case _ => err(ErrorCode.LoginCodeStateRequired)
     }
 
-  private def rejectLogoutWithoutCsrf(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def rejectLogoutWithoutCsrf(req: Request[IO]): IO[Response[IO]] =
     err(ErrorCode.CsrfHeaderMissing, "X-Skereru ヘッダーが必要です")
 
-  private def postAuthLogout(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def postAuthLogout(req: Request[IO]): IO[Response[IO]] =
     sessions.revoke(req).flatMap {
-      (
-        idToken,
-        c
-      ) =>
+      (idToken, c) =>
         oidc.flatTraverse(_.logoutUri(idToken, s"${cfg.publicUrl.stripSuffix("/")}/")).flatMap { idp =>
           Ok(Json.obj("redirect" -> idp.fold("/")(_.renderString).asJson)).map(_.addCookie(c))
         }
     }
 
-  private def postAuthDevLogin(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def postAuthDevLogin(req: Request[IO]): IO[Response[IO]] =
     body[Json](req) { j =>
       val c = j.hcursor
       val name = c.get[String]("name").getOrElse("").trim
@@ -148,23 +134,15 @@ final class AuthRoutes(
     ))
 
   /** ログイン後に戻る先（同じサイトのパスだけ）。 */
-  private def safeReturn(
-    s: Option[String]
-  ): String =
+  private def safeReturn(s: Option[String]): String =
     s.filter(SafePath.isLocal).getOrElse("/")
 
-  private def redirect(
-    to: String,
-    cookie: Option[ResponseCookie] = None
-  ): IO[Response[IO]] = {
+  private def redirect(to: String, cookie: Option[ResponseCookie] = None): IO[Response[IO]] = {
     val r = Response[IO](Status.Found).putHeaders(Location(Uri.unsafeFromString(to)))
     IO.pure(cookie.fold(r)(r.addCookie))
   }
 
-  private def loginCookie(
-    state: String,
-    maxAge: Long
-  ): ResponseCookie =
+  private def loginCookie(state: String, maxAge: Long): ResponseCookie =
     ResponseCookie(
       cfg.loginCookieName,
       state,
@@ -176,19 +154,12 @@ final class AuthRoutes(
     )
 
   /** callback に来た state が、このブラウザで始めたログインのものか（ほかの人のログインの続きを踏ませる「ログイン CSRF」を防ぐ）。 */
-  private def sameBrowser(
-    req: Request[IO],
-    state: String
-  ): Boolean =
+  private def sameBrowser(req: Request[IO], state: String): Boolean =
     req.cookies.find(_.name == cfg.loginCookieName).exists(c =>
       java.security.MessageDigest.isEqual(c.content.getBytes("UTF-8"), state.getBytes("UTF-8"))
     )
 
-  private def loggedIn(
-    u: User,
-    req: Request[IO],
-    idToken: Option[String] = None
-  ): IO[ResponseCookie] =
+  private def loggedIn(u: User, req: Request[IO], idToken: Option[String] = None): IO[ResponseCookie] =
     sessions.issue(u, req, idToken).flatTap(_ =>
       users.audit(Some(u.id), "web", "auth.login", None, Some(ReqInfo.clientIp(req))) *>
         sbirds.observe.Metrics.count("skereru.logins", "via" -> "web")

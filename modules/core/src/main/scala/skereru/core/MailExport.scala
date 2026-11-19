@@ -6,12 +6,7 @@ import skereru.shared.*
 object MailExport {
 
   /** 1通のラベル（特別なメールボックスは Gmail と同じ名前。アーカイブはラベルなし）。 */
-  def labels(
-    specialUse: Option[String],
-    name: String,
-    seen: Boolean,
-    flagged: Boolean
-  ): List[String] = {
+  def labels(specialUse: Option[String], name: String, seen: Boolean, flagged: Boolean): List[String] = {
     val box = specialUse match {
       case Some(SpecialUse.Inbox) => List("Inbox")
       case Some(SpecialUse.Sent) => List("Sent")
@@ -25,19 +20,13 @@ object MailExport {
   }
 
   /** ラベルのヘッダーの値（カンマ・引用符を含むラベルは引用符で囲む）。 */
-  def labelHeader(
-    ls: List[String]
-  ): String =
+  def labelHeader(ls: List[String]): String =
     ls.map(l => if l.exists(c => c == ',' || c == '"') then "\"" + l.replace("\"", "") + "\"" else l).mkString(",")
 
   private val Asctime = java.time.format.DateTimeFormatter.ofPattern("EEE MMM dd HH:mm:ss yyyy", java.util.Locale.US)
 
   /** mbox（mboxrd）の1通。改行は LF にし、行頭の ">…From " には > を1つ足す。 */
-  def entry(
-    raw: Array[Byte],
-    labels: List[String],
-    date: java.time.Instant
-  ): Array[Byte] = {
+  def entry(raw: Array[Byte], labels: List[String], date: java.time.Instant): Array[Byte] = {
     val out = new java.io.ByteArrayOutputStream(raw.length + 256)
     val latin1 = java.nio.charset.StandardCharsets.ISO_8859_1
     out.write(s"From skereru@localhost ${Asctime.format(date.atZone(java.time.ZoneOffset.UTC))}\n".getBytes(latin1))

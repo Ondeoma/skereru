@@ -12,9 +12,7 @@ import scala.jdk.CollectionConverters.*
 object Tls {
 
   /** TLS 1.2 以上・前方秘匿性のある AEAD の暗号だけを使う。 */
-  def harden(
-    s: SSLSocket
-  ): Unit = {
+  def harden(s: SSLSocket): Unit = {
     s.setEnabledProtocols(Array("TLSv1.3", "TLSv1.2").filter(s.getSupportedProtocols.contains))
     val strong = s.getSupportedCipherSuites.filter { c =>
       c.startsWith("TLS_AES_") || c.startsWith("TLS_CHACHA20_") ||
@@ -26,18 +24,12 @@ object Tls {
     s.setSSLParameters(p)
   }
 
-  private def blocks(
-    pem: String,
-    kind: String
-  ): List[Array[Byte]] =
+  private def blocks(pem: String, kind: String): List[Array[Byte]] =
     s"(?s)-----BEGIN $kind-----(.*?)-----END $kind-----".r.findAllMatchIn(pem).map(m =>
       Base64.getMimeDecoder.decode(m.group(1))
     ).toList
 
-  def fromPem(
-    certPem: String,
-    keyPem: String
-  ): SSLContext = {
+  def fromPem(certPem: String, keyPem: String): SSLContext = {
     val cf = CertificateFactory.getInstance("X.509")
     val chain = blocks(certPem, "CERTIFICATE").map(b =>
       cf.generateCertificate(new java.io.ByteArrayInputStream(b)).asInstanceOf[X509Certificate]
@@ -55,22 +47,15 @@ object Tls {
     context(ks, Array.emptyCharArray)
   }
 
-  private def pkcs8(
-    der: Array[Byte]
-  ): PrivateKey =
+  private def pkcs8(der: Array[Byte]): PrivateKey =
     List("RSA", "EC", "Ed25519").view.flatMap(a =>
       scala.util.Try(KeyFactory.getInstance(a).generatePrivate(new PKCS8EncodedKeySpec(der))).toOption
     ).headOption
       .getOrElse(throw IllegalArgumentException("秘密鍵を読めません"))
 
   /** PKCS#1 の RSA 秘密鍵を PKCS#8 に包む。 */
-  private def wrapPkcs1(
-    pkcs1: Array[Byte]
-  ): Array[Byte] = {
-    def tag(
-      t: Int,
-      c: Array[Byte]
-    ): Array[Byte] = {
+  private def wrapPkcs1(pkcs1: Array[Byte]): Array[Byte] = {
+    def tag(t: Int, c: Array[Byte]): Array[Byte] = {
       val len = c.length
       val l = if len < 128 then Array(len.toByte)
       else { val b = BigInt(len).toByteArray.dropWhile(_ == 0); Array((0x80 | b.length).toByte) ++ b }
@@ -96,10 +81,7 @@ object Tls {
     tag(0x30, Array[Byte](0x02, 0x01, 0x00) ++ algo ++ tag(0x04, pkcs1))
   }
 
-  private def context(
-    ks: KeyStore,
-    pass: Array[Char]
-  ): SSLContext = {
+  private def context(ks: KeyStore, pass: Array[Char]): SSLContext = {
     val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm)
     kmf.init(ks, pass)
     val ctx = SSLContext.getInstance("TLS")
@@ -108,9 +90,7 @@ object Tls {
   }
 
   /** 開発用の自己署名の証明書（JDK の keytool で作る）。 */
-  def selfSigned(
-    host: String
-  ): SSLContext = {
+  def selfSigned(host: String): SSLContext = {
     val dir = Files.createTempDirectory("skereru-tls")
     val ks = dir.resolve("self.p12")
     val keytool = Path.of(System.getProperty("java.home"), "bin", "keytool").toString
@@ -153,14 +133,8 @@ object Tls {
   /** 証明書を確かめない（外への配送で、相手の証明書が自己署名のときに使う。暗号化はする）。 */
   lazy val trustAll: SSLContext = {
     val tm = new X509TrustManager {
-      def checkClientTrusted(
-        c: Array[X509Certificate],
-        a: String
-      ): Unit = ()
-      def checkServerTrusted(
-        c: Array[X509Certificate],
-        a: String
-      ): Unit = ()
+      def checkClientTrusted(c: Array[X509Certificate], a: String): Unit = ()
+      def checkServerTrusted(c: Array[X509Certificate], a: String): Unit = ()
       def getAcceptedIssuers: Array[X509Certificate] = Array.empty
     }
     val ctx = SSLContext.getInstance("TLS")
@@ -169,8 +143,6 @@ object Tls {
   }
 
   /** 証明書の SAN（確認用）。 */
-  def names(
-    c: X509Certificate
-  ): List[String] =
+  def names(c: X509Certificate): List[String] =
     Option(c.getSubjectAlternativeNames).toList.flatMap(_.asScala.toList.map(_.get(1).toString))
 }

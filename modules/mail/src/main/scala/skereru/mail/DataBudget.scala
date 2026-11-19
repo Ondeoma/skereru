@@ -9,14 +9,10 @@ object DataBudget {
   private val used = new java.util.concurrent.atomic.AtomicLong(0)
 
   /** n バイトを借りる。足りなければ false。 */
-  def acquire(
-    n: Long
-  ): Boolean = {
+  def acquire(n: Long): Boolean = {
     val after = used.addAndGet(n)
     if after > limit then { used.addAndGet(-n); false }
     else true
   }
-  def release(
-    n: Long
-  ): Unit = used.addAndGet(-n)
+  def release(n: Long): Unit = used.addAndGet(-n)
 }

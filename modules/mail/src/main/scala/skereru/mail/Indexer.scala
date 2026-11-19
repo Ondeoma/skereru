@@ -10,31 +10,24 @@ import java.time.Instant
 /** メッセージを解析して、保存する属性（件名・差出人・宛先・プレビュー・検索用の本文）を作る。 */
 object Indexer {
 
-  def bodyText(
-    raw: Array[Byte],
-    root: MimePart
-  ): String = {
+  def bodyText(raw: Array[Byte], root: MimePart): String = {
     val leaves = root.leaves().map(_._2)
     val plain = leaves.find(p => p.mimeType == "text/plain" && !p.isAttachment)
     val html = leaves.find(p => p.mimeType == "text/html" && !p.isAttachment)
     plain.map(Mime.text(raw, _)).orElse(html.map(h => Html.toText(Mime.text(raw, h)))).getOrElse("")
   }
 
-  def index(
-    raw: Array[Byte],
-    blobId: String,
-    internalDate: Instant,
-    flags: List[String],
-    spam: Option[SpamVerdict],
-    auth: Option[Json],
-    parsed: Option[MimePart] = None
-  ): NewMessage = {
+  def index(raw: Array[Byte],
+            blobId: String,
+            internalDate: Instant,
+            flags: List[String],
+            spam: Option[SpamVerdict],
+            auth: Option[Json],
+            parsed: Option[MimePart] = None): NewMessage = {
     val root = parsed.getOrElse(Mime.parse(raw))
     val from = root.header("From").flatMap(Address.parseOne)
     // 表示名は引用符で囲んで保存する（"Doe, John" のようにカンマを含む名前があるため）
-    def addrs(
-      h: String
-    ) = root.header(h).toList.flatMap(Address.parseList)
+    def addrs(h: String) = root.header(h).toList.flatMap(Address.parseList)
       .map(a => MailText.quoted(a.nameDecoded, a.address)).mkString(", ")
     val text = bodyText(raw, root)
     val files = root.leaves().map(_._2).filter(_.isAttachment)

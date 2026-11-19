@@ -9,21 +9,13 @@ import scala.scalajs.js.annotation.JSGlobal
 @js.native
 @JSGlobal("skereruEditor")
 private object TiptapFacade extends js.Object {
-  def create(
-    el: dom.Element,
-    opts: js.Object
-  ): Tiptap = js.native
+  def create(el: dom.Element, opts: js.Object): Tiptap = js.native
 }
 
 @js.native
 private trait Tiptap extends js.Object {
-  def run(
-    name: String,
-    arg: js.UndefOr[String] = js.undefined
-  ): Unit = js.native
-  def isActive(
-    name: String
-  ): Boolean = js.native
+  def run(name: String, arg: js.UndefOr[String] = js.undefined): Unit = js.native
+  def isActive(name: String): Boolean = js.native
   def linkHref(): String = js.native
   def getHTML(): String = js.native
   def getText(): String = js.native
@@ -33,9 +25,7 @@ private trait Tiptap extends js.Object {
 }
 
 /** メールの作成のエディタ（ツールバー・ファイルのドロップ付き）. */
-final class EditorHandle private[web] (
-  t: Tiptap,
-  wrap: dom.Element) {
+final class EditorHandle private[web] (t: Tiptap, wrap: dom.Element) {
   def getHTML(): String = t.getHTML()
 
   /** テキストの本文（段落・改行・引用・箇条書きを保つ）. */
@@ -49,11 +39,8 @@ object Editor {
 
   // ラベル・ヒント・押したとき・押された状態か. 確認や入力には、ブラウザ標準のダイアログ（window.prompt など）を使わない
   private val buttons: List[(String, String, Tiptap => Unit, Tiptap => Boolean)] = {
-    def toggle(
-      label: String,
-      title: String,
-      name: String
-    ) = (label, title, (t: Tiptap) => t.run(name), (t: Tiptap) => t.isActive(name))
+    def toggle(label: String, title: String, name: String) =
+      (label, title, (t: Tiptap) => t.run(name), (t: Tiptap) => t.isActive(name))
     List(
       toggle("B", "太字", "bold"),
       toggle("I", "斜体", "italic"),
@@ -68,9 +55,7 @@ object Editor {
   }
 
   /** リンクの URL を聞く（アプリのダイアログ）. 取り消したときは何もしない. ダイアログの間にフォーカスが外れても、選択範囲はエディタが覚えている. */
-  private def askLink(
-    t: Tiptap
-  ): Unit =
+  private def askLink(t: Tiptap): Unit =
     Dialog.prompt("リンクの URL（空にすると外す。http・https・mailto）", t.linkHref()) { url =>
       val u = url.trim
       if (u.isEmpty) t.run("unsetLink")
@@ -78,16 +63,14 @@ object Editor {
     }
 
   /** onFiles: 本文にドロップされたファイル（添付する）. */
-  def create(
-    el: dom.Element,
-    html: String,
-    placeholder: String,
-    onChange: () => Unit,
-    onFiles: List[dom.File] => Unit
-  ): EditorHandle = {
-    def div(
-      cls: String
-    ) = { val d = dom.document.createElement("div").asInstanceOf[dom.HTMLElement]; d.className = cls; d }
+  def create(el: dom.Element,
+             html: String,
+             placeholder: String,
+             onChange: () => Unit,
+             onFiles: List[dom.File] => Unit): EditorHandle = {
+    def div(cls: String) = {
+      val d = dom.document.createElement("div").asInstanceOf[dom.HTMLElement]; d.className = cls; d
+    }
     val wrap = div("mail-editor")
     val bar = div("mail-editor-bar")
     val area = div("mail-editor-area")
@@ -106,12 +89,7 @@ object Editor {
     )
 
     val made = buttons.map {
-      (
-        label,
-        title,
-        run,
-        active
-      ) =>
+      (label, title, run, active) =>
         val b = dom.document.createElement("button").asInstanceOf[dom.HTMLButtonElement]
         b.`type` = "button"
         b.textContent = label
@@ -122,12 +100,7 @@ object Editor {
         (b, active)
     }
     refresh = () =>
-      made.foreach(
-        (
-          b,
-          active
-        ) => b.classList.toggle("on", active(t))
-      )
+      made.foreach((b, active) => b.classList.toggle("on", active(t)))
 
     dropFiles(wrap, onFiles)
     new EditorHandle(t, wrap)
@@ -137,13 +110,8 @@ object Editor {
    * ファイルのドロップで添付する（onFiles に渡す）. 本文に画像などとして入れたり、ブラウザがファイルを開いて
    * 書きかけが消えたりしないよう、エディタより先に（capture で）受け取る. 文字のドラッグ（並べ替え）はそのまま通す.
    */
-  private def dropFiles(
-    wrap: dom.Element,
-    onFiles: List[dom.File] => Unit
-  ): Unit = {
-    def hasFiles(
-      ev: dom.DragEvent
-    ): Boolean =
+  private def dropFiles(wrap: dom.Element, onFiles: List[dom.File] => Unit): Unit = {
+    def hasFiles(ev: dom.DragEvent): Boolean =
       ev.dataTransfer != null &&
         Option(ev.dataTransfer.types).exists(ts => (0 until ts.length).exists(ts(_) == "Files"))
     var depth = 0

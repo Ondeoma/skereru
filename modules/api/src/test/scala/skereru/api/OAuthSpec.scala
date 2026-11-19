@@ -25,12 +25,10 @@ class OAuthSpec extends ApiTestEnv {
   private val verifier = Crypto.randomToken(48)
   private val challenge = Crypto.pkceChallenge(verifier)
 
-  private def authorizeUri(
-    clientId: String = "skakapo",
-    redirect: String = Redirect,
-    scope: String = "read write send",
-    state: String = "st-1"
-  ): String = {
+  private def authorizeUri(clientId: String = "skakapo",
+                           redirect: String = Redirect,
+                           scope: String = "read write send",
+                           state: String = "st-1"): String = {
     val q = List(
       "response_type" -> "code",
       "client_id" -> clientId,
@@ -40,34 +38,19 @@ class OAuthSpec extends ApiTestEnv {
       "code_challenge" -> challenge,
       "code_challenge_method" -> "S256"
     )
-    "/oauth/authorize?" + q.map(
-      (
-        k,
-        v
-      ) => s"$k=${java.net.URLEncoder.encode(v, "UTF-8")}"
-    ).mkString("&")
+    "/oauth/authorize?" + q.map((k, v) => s"$k=${java.net.URLEncoder.encode(v, "UTF-8")}").mkString("&")
   }
 
-  private def getAuthorize(
-    e: Env,
-    uri: String,
-    who: Option[Who.Cookie]
-  ): IO[Response[IO]] = {
+  private def getAuthorize(e: Env, uri: String, who: Option[Who.Cookie]): IO[Response[IO]] = {
     val r = Request[IO](Method.GET, Uri.unsafeFromString(uri))
     e.app.run(who.fold(r)(c => r.addCookie(c.name, c.value)))
   }
 
-  private def query(
-    res: Response[IO]
-  ): Map[String, String] =
+  private def query(res: Response[IO]): Map[String, String] =
     res.headers.get[Location].map(_.uri.query.params).getOrElse(Map.empty)
 
   /** 許可の画面を開いて「許可する」を押し、認可コードを受け取る。画面の HTML も返す。 */
-  private def allow(
-    e: Env,
-    user: Who.Cookie,
-    scope: String
-  ): IO[(String, String)] =
+  private def allow(e: Env, user: Who.Cookie, scope: String): IO[(String, String)] =
     for {
       page <- getAuthorize(e, authorizeUri(scope = scope), Some(user))
       _ = assertEquals(page.status, Status.Ok)
@@ -94,19 +77,12 @@ class OAuthSpec extends ApiTestEnv {
       _ = assertEquals(q.get("state"), Some("st-1"))
     } yield (q.getOrElse("code", fail(s"認可コードがありません: $q")), html)
 
-  private def token(
-    e: Env,
-    form: UrlForm,
-    secret: String = Secret
-  ): IO[(Status, Json)] =
+  private def token(e: Env, form: UrlForm, secret: String = Secret): IO[(Status, Json)] =
     e.app.run(Request[IO](Method.POST, Uri.unsafeFromString("/oauth/token"))
       .putHeaders(Authorization(BasicCredentials("skakapo", secret))).withEntity(form))
       .flatMap(res => res.as[Json].map(res.status -> _))
 
-  private def exchange(
-    e: Env,
-    code: String
-  ): IO[(Status, Json)] =
+  private def exchange(e: Env, code: String): IO[(Status, Json)] =
     token(
       e,
       UrlForm(
@@ -117,15 +93,9 @@ class OAuthSpec extends ApiTestEnv {
       )
     )
 
-  private def str(
-    j: Json,
-    k: String
-  ): String = j.hcursor.get[String](k).getOrElse(fail(s"$k がありません: ${j.noSpaces}"))
+  private def str(j: Json, k: String): String = j.hcursor.get[String](k).getOrElse(fail(s"$k がありません: ${j.noSpaces}"))
 
-  private def sendMessage(
-    e: Env,
-    who: Who
-  ): IO[Json] =
+  private def sendMessage(e: Env, who: Who): IO[Json] =
     call(
       e,
       who,

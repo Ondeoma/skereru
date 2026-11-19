@@ -3,10 +3,7 @@ package skereru.core
 import scala.collection.mutable.ArrayBuffer
 
 /** メールアドレス 1 つ。name は表示名（ヘッダーに書かれたまま。RFC 2047 の符号化は残す）。 */
-final case class MailAddress(
-  name: Option[String],
-  local: String,
-  domain: String) {
+final case class MailAddress(name: Option[String], local: String, domain: String) {
   def address: String = if domain.isEmpty then local else s"$local@$domain"
   def nameDecoded: Option[String] = name.map(Mime.decodeHeader).map(_.trim).filter(_.nonEmpty)
 
@@ -16,35 +13,25 @@ final case class MailAddress(
 }
 
 /** グループ（"group: a, b;"）を含むアドレスの並び。 */
-final case class AddressGroup(
-  name: String,
-  members: List[MailAddress])
+final case class AddressGroup(name: String, members: List[MailAddress])
 
 object Address {
 
   /** 比較用の正規化（ドメインは小文字。ローカル部は大文字小文字を区別しない運用にする）。 */
-  def normalize(
-    addr: String
-  ): String = addr.trim.toLowerCase
+  def normalize(addr: String): String = addr.trim.toLowerCase
 
-  def domainOf(
-    addr: String
-  ): String = addr.lastIndexOf('@') match {
+  def domainOf(addr: String): String = addr.lastIndexOf('@') match {
     case -1 => ""
     case i => addr.substring(i + 1).toLowerCase.stripSuffix(".")
   }
 
-  def localOf(
-    addr: String
-  ): String = addr.lastIndexOf('@') match {
+  def localOf(addr: String): String = addr.lastIndexOf('@') match {
     case -1 => addr
     case i => addr.substring(0, i)
   }
 
   /** user+tag@example.com の +tag を除いたもの（サブアドレス）。 */
-  def withoutTag(
-    addr: String
-  ): String = {
+  def withoutTag(addr: String): String = {
     val l = localOf(addr)
     val i = l.indexOf('+')
     if i > 0 then s"${l.substring(0, i)}@${domainOf(addr)}" else addr
@@ -54,27 +41,21 @@ object Address {
   private val Label = """[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?""".r
 
   /** ドメイン名として正しいか（IDN は事前に punycode にしておくこと）。 */
-  def validDomain(
-    d: String
-  ): Boolean = {
+  def validDomain(d: String): Boolean = {
     val s = d.stripSuffix(".")
     s.length <= 253 && s.contains('.') && s.split('.').forall(l => Label.matches(l)) &&
     !s.split('.').last.forall(_.isDigit)
   }
 
   /** 受け付けるアドレスの形（ドット・アトムのローカル部 + ドメイン。引用符つきのローカル部は受け付けない）。 */
-  def valid(
-    addr: String
-  ): Boolean = {
+  def valid(addr: String): Boolean = {
     val i = addr.lastIndexOf('@')
     i > 0 && i < addr.length - 1 && addr.length <= 254 && i <= 64 && LocalAtom.matches(addr.substring(0, i)) &&
     validDomain(addr.substring(i + 1))
   }
 
   /** IDN（日本語ドメイン）を punycode にする。 */
-  def toAscii(
-    addr: String
-  ): String = {
+  def toAscii(addr: String): String = {
     val i = addr.lastIndexOf('@')
     if i < 0 then addr
     else
@@ -83,29 +64,21 @@ object Address {
   }
 
   /** ヘッダーの値（To: など）を解析する。グループは展開して返す。壊れた部分は読み飛ばす。 */
-  def parseList(
-    raw: String
-  ): List[MailAddress] = parseGroups(raw).flatMap {
+  def parseList(raw: String): List[MailAddress] = parseGroups(raw).flatMap {
     case Left(a) => List(a)
     case Right(g) => g.members
   }
 
   /** 1 つだけのアドレス（From など）。 */
-  def parseOne(
-    raw: String
-  ): Option[MailAddress] = parseList(raw).headOption
+  def parseOne(raw: String): Option[MailAddress] = parseList(raw).headOption
 
   /** アドレスとグループを区別して返す（IMAP の ENVELOPE はグループを区別して書く）。 */
-  def parseGroups(
-    raw: String
-  ): List[Either[MailAddress, AddressGroup]] = {
+  def parseGroups(raw: String): List[Either[MailAddress, AddressGroup]] = {
     val toks = tokenize(raw)
     val out = ArrayBuffer.empty[Either[MailAddress, AddressGroup]]
     var i = 0
     // 1 つのアドレス（", " か ";" の手前まで）を読む
-    def readMailbox(
-      stopAtSemicolon: Boolean
-    ): Option[MailAddress] = {
+    def readMailbox(stopAtSemicolon: Boolean): Option[MailAddress] = {
       val start = i
       while i < toks.length && !(toks(i) == Tok.Sym(',') || (stopAtSemicolon && toks(i) == Tok.Sym(';'))) do i += 1
       mailbox(toks.slice(start, i).toList)
@@ -133,9 +106,7 @@ object Address {
     out.toList
   }
 
-  private def mailbox(
-    ts: List[Tok]
-  ): Option[MailAddress] = {
+  private def mailbox(ts: List[Tok]): Option[MailAddress] = {
     val lt = ts.indexOf(Tok.Sym('<'))
     if lt >= 0 then {
       val gt = ts.indexOf(Tok.Sym('>'), lt)
@@ -146,27 +117,15 @@ object Address {
         case k => spec.drop(k + 1)
       }
       val name = ts.take(lt).map(_.text).mkString(" ").trim
-      addrSpec(spec2).map(
-        (
-          l,
-          d
-        ) => MailAddress(Option(name).filter(_.nonEmpty), l, d)
-      )
+      addrSpec(spec2).map((l, d) => MailAddress(Option(name).filter(_.nonEmpty), l, d))
     } else {
       // 括弧のコメントは表示名として使う（"taro@example.com (山田 太郎)"）
       val comment = ts.collect { case Tok.Comment(c) => c }.headOption
-      addrSpec(ts.filterNot(_.isInstanceOf[Tok.Comment])).map(
-        (
-          l,
-          d
-        ) => MailAddress(comment.filter(_.nonEmpty), l, d)
-      )
+      addrSpec(ts.filterNot(_.isInstanceOf[Tok.Comment])).map((l, d) => MailAddress(comment.filter(_.nonEmpty), l, d))
     }
   }
 
-  private def addrSpec(
-    ts: List[Tok]
-  ): Option[(String, String)] = {
+  private def addrSpec(ts: List[Tok]): Option[(String, String)] = {
     val clean = ts.filterNot(_.isInstanceOf[Tok.Comment])
     val at = clean.lastIndexOf(Tok.Sym('@'))
     val text = (xs: List[Tok]) =>
@@ -202,9 +161,7 @@ object Address {
     }
   }
 
-  private def tokenize(
-    s: String
-  ): Vector[Tok] = {
+  private def tokenize(s: String): Vector[Tok] = {
     val out = ArrayBuffer.empty[Tok]
     var i = 0
     val specials = Set('<', '>', '@', ',', ';', ':')

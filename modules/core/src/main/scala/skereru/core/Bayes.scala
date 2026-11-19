@@ -4,10 +4,7 @@ package skereru.core
 object Bayes {
 
   /** 学習・判定に使うトークン（件名・本文の語、日本語は2文字ずつ、URL のホスト、送信者のドメイン）。 */
-  def tokens(
-    msg: Array[Byte],
-    root: MimePart
-  ): Set[String] = {
+  def tokens(msg: Array[Byte], root: MimePart): Set[String] = {
     val subject = root.headerDecoded("Subject").getOrElse("")
     val from = root.header("From").flatMap(Address.parseOne)
     val texts = root.leaves().map(_._2).filter(_.mainType == "text").take(3).map { p =>
@@ -15,10 +12,7 @@ object Bayes {
       if p.subType == "html" then Html.toText(t) else t
     }.mkString("\n").take(100_000)
     val out = scala.collection.mutable.Set.empty[String]
-    def words(
-      s: String,
-      prefix: String
-    ): Unit = {
+    def words(s: String, prefix: String): Unit = {
       // 英数字の語（3〜20文字）
       """[\p{L}\p{N}][\p{L}\p{N}'_.-]*""".r.findAllIn(s.toLowerCase).foreach { w =>
         val ascii = w.filter(_ < 0x80)
@@ -45,19 +39,12 @@ object Bayes {
   }
 
   /** トークンごとの数（spam・ham）と学習した通数から、迷惑メールである確率を出す。学習が足りなければ None。 */
-  def classify(
-    counts: Map[String, (Int, Int)],
-    nSpam: Int,
-    nHam: Int
-  ): Option[Double] =
+  def classify(counts: Map[String, (Int, Int)], nSpam: Int, nHam: Int): Option[Double] =
     if nSpam < 30 || nHam < 30 then None
     else {
       val s = 1.0; val x = 0.5
       val fs = counts.toList.flatMap {
-        (
-          _,
-          sh
-        ) =>
+        (_, sh) =>
           {
             val (sp, hm) = sh
             val n = sp + hm
@@ -80,10 +67,7 @@ object Bayes {
     }
 
   /** カイ二乗分布の上側確率（自由度は偶数）。 */
-  private def chi2Q(
-    x2: Double,
-    v: Int
-  ): Double = {
+  private def chi2Q(x2: Double, v: Int): Double = {
     val m = x2 / 2
     var sum = math.exp(-m)
     var term = sum

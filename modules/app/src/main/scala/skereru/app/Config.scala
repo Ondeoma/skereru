@@ -14,43 +14,25 @@ import scala.concurrent.duration.*
 
 /** 設定は環境変数から読む（一覧は README）。 */
 object Config {
-  private def opt(
-    name: String
-  ): Option[String] = sys.env.get(name).map(_.trim).filter(_.nonEmpty)
-  private def int(
-    name: String
-  ): Option[Int] = opt(name).flatMap(_.toIntOption)
-  private def bool(
-    name: String,
-    default: Boolean
-  ): Boolean = opt(name).map(_.equalsIgnoreCase("true")).getOrElse(default)
-  private def required(
-    name: String
-  ): Either[String, String] = opt(name).toRight(s"環境変数 $name を設定してください")
+  private def opt(name: String): Option[String] = sys.env.get(name).map(_.trim).filter(_.nonEmpty)
+  private def int(name: String): Option[Int] = opt(name).flatMap(_.toIntOption)
+  private def bool(name: String, default: Boolean): Boolean =
+    opt(name).map(_.equalsIgnoreCase("true")).getOrElse(default)
+  private def required(name: String): Either[String, String] = opt(name).toRight(s"環境変数 $name を設定してください")
 
   /** ポート（"off" で待ち受けない）。 */
-  private def port(
-    name: String,
-    default: Int
-  ): Option[Int] = opt(name) match {
+  private def port(name: String, default: Int): Option[Int] = opt(name) match {
     case Some(v) if v.equalsIgnoreCase("off") => None
     case Some(v) => v.toIntOption.orElse(Some(default))
     case None => Some(default)
   }
-  private def list(
-    name: String
-  ): List[String] = opt(name).toList.flatMap(_.split("[,\\s]+").map(_.trim).filter(_.nonEmpty))
-  private def cidrs(
-    name: String
-  ): Either[String, List[(InetAddress, Int)]] =
+  private def list(name: String): List[String] =
+    opt(name).toList.flatMap(_.split("[,\\s]+").map(_.trim).filter(_.nonEmpty))
+  private def cidrs(name: String): Either[String, List[(InetAddress, Int)]] =
     list(name).traverse(c => skereru.core.Cidr.parse(c).toRight(s"$name の $c が正しくありません"))
 
   /** テンプレートの値（change-me）のままの秘密は、本番では受け付けない。 */
-  private def notPlaceholder(
-    name: String,
-    v: Option[String],
-    devLogin: Boolean
-  ): Either[String, Unit] =
+  private def notPlaceholder(name: String, v: Option[String], devLogin: Boolean): Either[String, Unit] =
     Either.cond(
       devLogin || !v.exists(_.toLowerCase.contains("change-me")),
       (),
@@ -65,25 +47,16 @@ object Config {
       ).flatMap(_.traverse { j =>
         val c = j.hcursor
         (c.get[String]("id"), c.get[String]("secret"), c.get[String]("redirectUri")).tupled.toOption
-          .filter(
-            (
-              id,
-              sec,
-              uri
-            ) => id.nonEmpty && sec.length >= 16 && (uri.startsWith("https://") || uri.startsWith("http://localhost"))
+          .filter((id, sec, uri) =>
+            id.nonEmpty && sec.length >= 16 && (uri.startsWith("https://") || uri.startsWith("http://localhost"))
           )
           .toRight("OAUTH_CLIENTS の各要素には id・secret（16文字以上）・redirectUri（https://）を指定してください")
-          .flatMap(
-            (
-              id,
-              sec,
-              uri
-            ) =>
-              c.get[List[String]]("scopes").toOption.getOrElse(List("read")) match {
-                case sc if sc.nonEmpty && sc.forall(OAuthClient.Scopes.contains) =>
-                  Right(OAuthClient(id, sec, uri, c.get[String]("name").getOrElse(id), sc.distinct))
-                case _ => Left(s"OAUTH_CLIENTS の $id の scopes は read・write・send から選んでください")
-              }
+          .flatMap((id, sec, uri) =>
+            c.get[List[String]]("scopes").toOption.getOrElse(List("read")) match {
+              case sc if sc.nonEmpty && sc.forall(OAuthClient.Scopes.contains) =>
+                Right(OAuthClient(id, sec, uri, c.get[String]("name").getOrElse(id), sc.distinct))
+              case _ => Left(s"OAUTH_CLIENTS の $id の scopes は read・write・send から選んでください")
+            }
           )
       }).flatMap(cs => Either.cond(cs.map(_.id).distinct.size == cs.size, cs, "OAUTH_CLIENTS の id が重なっています"))
     }

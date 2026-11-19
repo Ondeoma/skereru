@@ -120,10 +120,7 @@ object Main extends IOApp.Simple {
         push <- Resource.eval(sbirds.push.PushService.create(pushStore, http, cfg.api.publicUrl, "skereru"))
         _ <- Resource.eval(delivery.refreshDomains *> startupNotes(cfg))
         // DMARC の集計レポートは、このサーバーのドメインについてのものだけを保存する
-        _ = delivery.onDmarcReport = (
-          raw,
-          authenticated
-        ) =>
+        _ = delivery.onDmarcReport = (raw, authenticated) =>
           skereru.core.DmarcReport.fromMessage(raw) match {
             case Left(e) => Log.report(ErrorCode.DmarcReportUnreadable, e.toString)
             case Right(a) => delivery.isLocalDomain(a.domain).ifM(
@@ -132,11 +129,7 @@ object Main extends IOApp.Simple {
               )
           }
         // 受信トレイに届いた新着は、この端末で受け取る設定（PWA のプッシュ通知）にしていれば、ブラウザを閉じていても知らせる
-        _ = delivery.onInboxMail = (
-          uid,
-          id,
-          root
-        ) => push.send(uid, newMailPush(id, root))
+        _ = delivery.onInboxMail = (uid, id, root) => push.send(uid, newMailPush(id, root))
         _ <- MailServers.start(MailServers.Deps(cfg.mail, Some(tls), delivery, mailAuth, mail, blobs, queue, dns, log))
         loops = List[IO[Unit]](
           worker.loop,
@@ -196,10 +189,7 @@ object Main extends IOApp.Simple {
     } yield ()
 
   /** DB（Patroni のプライマリ）が使えるまで待ってからマイグレーションする。複数ノード同時起動でも Flyway のロックで1回だけ適用される。 */
-  private def migrateWithRetry(
-    cfg: AppConfig,
-    attempt: Int = 1
-  ): IO[Int] =
+  private def migrateWithRetry(cfg: AppConfig, attempt: Int = 1): IO[Int] =
     Database.migrate(cfg.db).handleErrorWith { e =>
       if attempt >= 60 then IO.raiseError(e)
       else
@@ -208,13 +198,8 @@ object Main extends IOApp.Simple {
     }
 
   /** DB から定期的に読むメトリクス（skorimako のダッシュボード・アラート用）。 */
-  private def gauges(
-    xa: doobie.Transactor[IO],
-    cfg: AppConfig
-  ): Resource[IO, Unit] = {
-    def q(
-      sqlText: doobie.Fragment
-    ): IO[Long] = sqlText.query[Long].unique.transact(xa)
+  private def gauges(xa: doobie.Transactor[IO], cfg: AppConfig): Resource[IO, Unit] = {
+    def q(sqlText: doobie.Fragment): IO[Long] = sqlText.query[Long].unique.transact(xa)
     val quota = cfg.mail.defaultQuotaBytes
     List(
       Metrics.gauge("skereru.users.total", "有効なユーザーの数")(q(sql"select count(*) from app_user where not disabled")),
@@ -258,10 +243,7 @@ object Main extends IOApp.Simple {
   }
 
   /** 新着のプッシュ通知の中身（差出人・件名. 開くとそのメール）。画面の新着の通知（Notify）と同じ tag にして、重ねて出さない。 */
-  private def newMailPush(
-    id: java.util.UUID,
-    root: skereru.core.MimePart
-  ): sbirds.push.PushMessage = {
+  private def newMailPush(id: java.util.UUID, root: skereru.core.MimePart): sbirds.push.PushMessage = {
     val from = root.header("From").flatMap(skereru.core.Address.parseOne).map(a =>
       a.nameDecoded.getOrElse(a.address)
     ).getOrElse("新しいメール")
@@ -271,10 +253,7 @@ object Main extends IOApp.Simple {
   }
 
   /** ロードバランサー用のヘルスチェック。DB（プライマリ）に書けない状態なら 503。 */
-  private def healthRoutes(
-    xa: doobie.Transactor[IO],
-    node: String
-  ): HttpRoutes[IO] = HttpRoutes.of[IO] {
+  private def healthRoutes(xa: doobie.Transactor[IO], node: String): HttpRoutes[IO] = HttpRoutes.of[IO] {
     case GET -> Root / "healthz" =>
       sql"select not pg_is_in_recovery()".query[Boolean].unique.transact(xa).timeout(3.seconds).attempt.flatMap {
         case Right(true) => text(Status.Ok, s"ok $node")
@@ -284,15 +263,10 @@ object Main extends IOApp.Simple {
       }
   }
 
-  private def text(
-    status: Status,
-    body: String
-  ): IO[Response[IO]] =
+  private def text(status: Status, body: String): IO[Response[IO]] =
     IO.pure(Response[IO](status).withEntity(body)(using EntityEncoder.stringEncoder))
 
-  private def startupNotes(
-    cfg: AppConfig
-  ): IO[Unit] =
+  private def startupNotes(cfg: AppConfig): IO[Unit] =
     IO.whenA(
       cfg.oidc.isEmpty
     )(Log.println("[skereru] WARNING: OIDC が未設定です。開発用のログイン（DEV_LOGIN）を使います。本番では使わないでください")) *>
@@ -307,9 +281,7 @@ object Main extends IOApp.Simple {
       )(Log.println("[skereru] 外への送信は MX へ直接行います（ポート25の外向きの通信が必要です。使えない環境では RELAY_HOST を設定してください）"))
 
   /** ビルド済みの画面の配信。存在しないパスは index.html（SPA）。 */
-  private def spa(
-    dir: String
-  ): HttpRoutes[IO] = {
+  private def spa(dir: String): HttpRoutes[IO] = {
     val files = fileService[IO](FileService.Config(dir))
     val index = HttpRoutes.of[IO] {
       case req @ GET -> _

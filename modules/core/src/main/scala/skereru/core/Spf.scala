@@ -3,13 +3,9 @@ package skereru.core
 import java.net.{Inet4Address, Inet6Address, InetAddress}
 
 /** SPF（RFC 7208）の評価。 */
-final class Spf(
-  dns: Dns) {
+final class Spf(dns: Dns) {
 
-  private final class Ctx(
-    val ip: InetAddress,
-    val sender: String,
-    val helo: String) {
+  private final class Ctx(val ip: InetAddress, val sender: String, val helo: String) {
     var lookups = 0
     var voids = 0
 
@@ -19,41 +15,29 @@ final class Spf(
 
   private val Modifier = "^[A-Za-z][A-Za-z0-9_.-]*=".r
 
-  private final class Abort(
-    val r: SpfResult) extends Exception(null, null, false, false)
+  private final class Abort(val r: SpfResult) extends Exception(null, null, false, false)
 
   /** sender は MAIL FROM（空なら postmaster@helo）。 */
-  def check(
-    ip: InetAddress,
-    sender: String,
-    helo: String
-  ): SpfResult = {
+  def check(ip: InetAddress, sender: String, helo: String): SpfResult = {
     val s = if sender.isEmpty then s"postmaster@$helo" else sender
     val ctx = Ctx(ip, s, helo)
     try checkHost(ctx, Address.domainOf(s), 0)
     catch case a: Abort => a.r
   }
 
-  private def countLookup(
-    ctx: Ctx
-  ): Unit = {
+  private def countLookup(ctx: Ctx): Unit = {
     if System.currentTimeMillis() > ctx.deadline then throw Abort(SpfResult.TempError)
     ctx.lookups += 1
     if ctx.lookups > 10 then throw Abort(SpfResult.PermError)
   }
 
-  private def void(
-    ctx: Ctx,
-    empty: Boolean
-  ): Unit =
+  private def void(ctx: Ctx, empty: Boolean): Unit =
     if empty then {
       ctx.voids += 1
       if ctx.voids > 2 then throw Abort(SpfResult.PermError)
     }
 
-  private def record(
-    domain: String
-  ): Either[SpfResult, Option[String]] =
+  private def record(domain: String): Either[SpfResult, Option[String]] =
     dns.txt(domain) match {
       case Left(_) => Left(SpfResult.TempError)
       case Right(txts) =>
@@ -64,11 +48,7 @@ final class Spf(
         }
     }
 
-  private def checkHost(
-    ctx: Ctx,
-    domain: String,
-    depth: Int
-  ): SpfResult = {
+  private def checkHost(ctx: Ctx, domain: String, depth: Int): SpfResult = {
     if depth > 10 || domain.isEmpty || domain.length > 253 || domain.split('.').exists(_.isEmpty) then
       return SpfResult.None
     record(domain) match {
@@ -102,9 +82,7 @@ final class Spf(
     }
   }
 
-  private def splitCidr(
-    s: String
-  ): (String, Option[Int], Option[Int]) = {
+  private def splitCidr(s: String): (String, Option[Int], Option[Int]) = {
     // domain/24//64
     val i6 = s.indexOf("//")
     val (rest, c6) = if i6 >= 0 then (s.substring(0, i6), s.substring(i6 + 2).toIntOption) else (s, None)
@@ -112,12 +90,7 @@ final class Spf(
     if i4 >= 0 then (rest.substring(0, i4), rest.substring(i4 + 1).toIntOption, c6) else (rest, None, c6)
   }
 
-  private def matches(
-    ctx: Ctx,
-    domain: String,
-    mech0: String,
-    depth: Int
-  ): Boolean = {
+  private def matches(ctx: Ctx, domain: String, mech0: String, depth: Int): Boolean = {
     val lower = mech0.toLowerCase
     val (name, arg) = lower.indexOf(':') match {
       case -1 => lower.indexOf('/') match {
@@ -148,12 +121,7 @@ final class Spf(
           case Right(mxs) =>
             void(ctx, mxs.isEmpty)
             if mxs.size > 10 then throw Abort(SpfResult.PermError)
-            mxs.exists(
-              (
-                _,
-                h
-              ) => ipsOf(ctx, h).exists(inCidr(ctx.ip, _, c4, c6))
-            )
+            mxs.exists((_, h) => ipsOf(ctx, h).exists(inCidr(ctx.ip, _, c4, c6)))
         }
       case "ip4" | "ip6" =>
         val (a, c4, c6) = splitCidr(arg)
@@ -176,10 +144,7 @@ final class Spf(
     }
   }
 
-  private def ipsOf(
-    ctx: Ctx,
-    host: String
-  ): List[InetAddress] = {
+  private def ipsOf(ctx: Ctx, host: String): List[InetAddress] = {
     if System.currentTimeMillis() > ctx.deadline then throw Abort(SpfResult.TempError)
     dns.addresses(host) match {
       case Left(_) => throw Abort(SpfResult.TempError)
@@ -187,12 +152,7 @@ final class Spf(
     }
   }
 
-  private def inCidr(
-    ip: InetAddress,
-    net: InetAddress,
-    c4: Option[Int],
-    c6: Option[Int]
-  ): Boolean =
+  private def inCidr(ip: InetAddress, net: InetAddress, c4: Option[Int], c6: Option[Int]): Boolean =
     (ip, net) match {
       case (_: Inet4Address, _: Inet4Address) => Cidr.contains(net, c4.getOrElse(32), ip)
       case (_: Inet6Address, _: Inet6Address) => Cidr.contains(net, c6.getOrElse(128), ip)
@@ -200,11 +160,7 @@ final class Spf(
     }
 
   /** マクロ（%{s} %{l} %{o} %{d} %{i} %{h} %{v}）の展開。 */
-  private def expand(
-    spec: String,
-    ctx: Ctx,
-    domain: String
-  ): String = {
+  private def expand(spec: String, ctx: Ctx, domain: String): String = {
     if !spec.contains('%') then return spec.toLowerCase
     val out = new StringBuilder
     var i = 0

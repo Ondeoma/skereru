@@ -10,20 +10,14 @@ import java.net.InetAddress
 import java.time.Instant
 
 /** メールソフト（IMAP・POP3・SMTP）のログイン。アプリパスワードで認証し、総当たりはロックする。 */
-final class MailAuth(
-  users: UserStore) {
+final class MailAuth(users: UserStore) {
   private val ipMax = 20 // 1つの IP から（どのアカウントでも）
   private val pairMax = 8 // 1つの IP から1つのアカウントへ
 
   private val windowSecs = 15 * 60
   private val lockSecs = 15 * 60
 
-  def login(
-    login: String,
-    password: String,
-    ip: InetAddress,
-    proto: String
-  ): IO[Either[String, User]] = {
+  def login(login: String, password: String, ip: InetAddress, proto: String): IO[Either[String, User]] = {
     // IPv6 は /64 単位で数える（/64 の中でアドレスを変えて、ロックを回避させない）
     val ipKey = s"ip:${IpKey.of(ip)}"
     val pairKey = s"pair:${IpKey.of(ip)}:${login.trim.toLowerCase}"

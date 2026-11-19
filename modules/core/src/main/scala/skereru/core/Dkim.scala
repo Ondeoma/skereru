@@ -7,42 +7,31 @@ import java.security.spec.{PKCS8EncodedKeySpec, X509EncodedKeySpec}
 import java.util.Base64
 
 /** DKIM（RFC 6376・RFC 8463）の検証と署名。メッセージの改行は CRLF であること。 */
-final class Dkim(
-  dns: Dns) {
+final class Dkim(dns: Dns) {
 
-  def tags(
-    s: String
-  ): Map[String, String] =
+  def tags(s: String): Map[String, String] =
     s.split(';').toList.flatMap { kv =>
       val i = kv.indexOf('=')
       Option.when(i > 0)(kv.substring(0, i).trim.toLowerCase -> kv.substring(i + 1).replaceAll("[ \t\r\n]", "").trim)
     }.toMap
 
-  def verify(
-    msg: Array[Byte],
-    now: java.time.Instant
-  ): List[DkimResult] = {
+  def verify(msg: Array[Byte], now: java.time.Instant): List[DkimResult] = {
     val (headers, bodyStart) = RawHeaders.split(msg)
     headers.filter(_.name.equalsIgnoreCase("DKIM-Signature")).take(5).map(sig =>
       verifyOne(msg, headers, bodyStart, sig, now)
     )
   }
 
-  private def verifyOne(
-    msg: Array[Byte],
-    headers: List[RawHeader],
-    bodyStart: Int,
-    sig: RawHeader,
-    now: java.time.Instant
-  ): DkimResult = {
+  private def verifyOne(msg: Array[Byte],
+                        headers: List[RawHeader],
+                        bodyStart: Int,
+                        sig: RawHeader,
+                        now: java.time.Instant): DkimResult = {
     val value = sig.raw.substring(sig.raw.indexOf(':') + 1)
     val t = tags(value)
     val d = t.getOrElse("d", "").toLowerCase
     val s = t.getOrElse("s", "")
-    def r(
-      res: String,
-      why: String
-    ) = DkimResult(d, s, res, why)
+    def r(res: String, why: String) = DkimResult(d, s, res, why)
     val algo = t.getOrElse("a", "").toLowerCase
     if t.get("v").contains("1") == false then return r("permerror", "v=1 がありません")
     if d.isEmpty || s.isEmpty || !t.contains("b") || !t.contains("bh") || !t.contains("h") then
@@ -119,20 +108,14 @@ final class Dkim(
     }
   }
 
-  def canonHeader(
-    h: RawHeader,
-    mode: String
-  ): String =
+  def canonHeader(h: RawHeader, mode: String): String =
     if mode == "relaxed" then {
       val v = h.raw.substring(h.raw.indexOf(':') + 1).replaceAll("\r?\n", "").replaceAll("[ \t]+", " ").trim
       s"${h.name.toLowerCase.trim}:$v\r\n"
     } else if h.raw.endsWith("\r\n") then h.raw
     else h.raw.stripSuffix("\n") + "\r\n"
 
-  def canonBody(
-    body: Array[Byte],
-    mode: String
-  ): Array[Byte] = {
+  def canonBody(body: Array[Byte], mode: String): Array[Byte] = {
     val text = new String(body, StandardCharsets.ISO_8859_1).replaceAll("(?<!\r)\n", "\r\n")
     if mode == "relaxed" then {
       val lines = text.split("\r\n", -1).map(_.replaceAll("[ \t]+", " ").replaceAll(" +$", ""))
@@ -151,9 +134,7 @@ final class Dkim(
 object Dkim {
 
   /** 署名ヘッダーの b= の値を空にする（タグの位置で判定する。ほかのタグの値は変えない）。 */
-  def stripB(
-    raw: String
-  ): String = {
+  def stripB(raw: String): String = {
     val i = raw.indexOf(':') + 1
     raw.substring(0, i) + raw.substring(i).split(";", -1).map { p =>
       val eq = p.indexOf('=')
@@ -178,9 +159,7 @@ object Dkim {
     "list-unsubscribe"
   )
 
-  def rsaPublic(
-    der: Array[Byte]
-  ): java.security.interfaces.RSAPublicKey = {
+  def rsaPublic(der: Array[Byte]): java.security.interfaces.RSAPublicKey = {
     val kf = KeyFactory.getInstance("RSA")
     scala.util.Try(kf.generatePublic(new X509EncodedKeySpec(der))).getOrElse {
       // PKCS#1 の RSAPublicKey（一部の古い DNS レコード）を SPKI に包む
@@ -206,17 +185,12 @@ object Dkim {
     }.asInstanceOf[java.security.interfaces.RSAPublicKey]
   }
 
-  def ed25519Public(
-    raw: Array[Byte]
-  ): PublicKey = {
+  def ed25519Public(raw: Array[Byte]): PublicKey = {
     val prefix = Array[Byte](0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00)
     KeyFactory.getInstance("Ed25519").generatePublic(new X509EncodedKeySpec(prefix ++ raw))
   }
 
-  private def derTag(
-    tag: Int,
-    content: Array[Byte]
-  ): Array[Byte] = {
+  private def derTag(tag: Int, content: Array[Byte]): Array[Byte] = {
     val len = content.length
     val lenBytes =
       if len < 128 then Array(len.toByte)
@@ -235,23 +209,14 @@ object Dkim {
     (kp.getPrivate.getEncoded, Base64.getEncoder.encodeToString(kp.getPublic.getEncoded))
   }
 
-  def privateKey(
-    pkcs8: Array[Byte]
-  ): PrivateKey = KeyFactory.getInstance("RSA").generatePrivate(new PKCS8EncodedKeySpec(pkcs8))
+  def privateKey(pkcs8: Array[Byte]): PrivateKey =
+    KeyFactory.getInstance("RSA").generatePrivate(new PKCS8EncodedKeySpec(pkcs8))
 
   /** DNS の TXT レコードの値。 */
-  def dnsRecord(
-    publicB64: String
-  ): String = s"v=DKIM1; k=rsa; p=$publicB64"
+  def dnsRecord(publicB64: String): String = s"v=DKIM1; k=rsa; p=$publicB64"
 
   /** DKIM-Signature ヘッダー（"DKIM-Signature: …\r\n"）を作る。メッセージの先頭に付ける。 */
-  def sign(
-    msg: Array[Byte],
-    domain: String,
-    selector: String,
-    key: PrivateKey,
-    now: java.time.Instant
-  ): String = {
+  def sign(msg: Array[Byte], domain: String, selector: String, key: PrivateKey, now: java.time.Instant): String = {
     val d = new Dkim(NoDns)
     val (headers, bodyStart) = RawHeaders.split(msg)
     val body = d.canonBody(java.util.Arrays.copyOfRange(msg, bodyStart, msg.length), "relaxed")
@@ -278,17 +243,9 @@ object Dkim {
   }
 
   private object NoDns extends Dns {
-    def txt(
-      name: String
-    ) = Right(Nil)
-    def addresses(
-      name: String
-    ) = Right(Nil)
-    def mx(
-      name: String
-    ) = Right(Nil)
-    def ptr(
-      ip: InetAddress
-    ) = Right(Nil)
+    def txt(name: String) = Right(Nil)
+    def addresses(name: String) = Right(Nil)
+    def mx(name: String) = Right(Nil)
+    def ptr(ip: InetAddress) = Right(Nil)
   }
 }

@@ -10,11 +10,7 @@ import java.time.{Instant, ZoneId}
 import java.util.{Date, Properties}
 
 /** 添付ファイル（中身・名前・種類）。 */
-final case class Attachment(
-  filename: String,
-  contentType: String,
-  data: Array[Byte],
-  contentId: Option[String] = None)
+final case class Attachment(filename: String, contentType: String, data: Array[Byte], contentId: Option[String] = None)
 
 /** 組み立てるメッセージ。 */
 final case class Outgoing(
@@ -37,29 +33,20 @@ object Compose {
   private val session = Session.getInstance(new Properties())
 
   /** Message-ID（<ランダム@ドメイン>）。 */
-  def newMessageId(
-    domain: String
-  ): String = {
+  def newMessageId(domain: String): String = {
     val r = new Array[Byte](18)
     new java.security.SecureRandom().nextBytes(r)
     s"<${java.util.Base64.getUrlEncoder.withoutPadding().encodeToString(r)}@$domain>"
   }
 
-  private def ia(
-    a: MailAddress
-  ): InternetAddress = {
+  private def ia(a: MailAddress): InternetAddress = {
     val x = new InternetAddress(a.address)
     a.nameDecoded.foreach(n => x.setPersonal(n, "UTF-8"))
     x
   }
 
   /** 組み立てたメッセージのバイト列と Message-ID。Bcc はヘッダーに書かない。 */
-  def build(
-    o: Outgoing,
-    messageId: String,
-    now: Instant,
-    zone: ZoneId
-  ): Array[Byte] = {
+  def build(o: Outgoing, messageId: String, now: Instant, zone: ZoneId): Array[Byte] = {
     val msg = new MimeMessage(session) {
       override def updateMessageID(): Unit = setHeader("Message-ID", messageId)
     }
@@ -70,29 +57,19 @@ object Compose {
     msg.setSentDate(Date.from(now))
     o.inReplyTo.foreach(r => msg.setHeader("In-Reply-To", r))
     if o.references.nonEmpty then msg.setHeader("References", MimeUtility.fold(12, o.references.mkString(" ")))
-    o.extraHeaders.foreach(
-      (
-        k,
-        v
-      ) => msg.setHeader(k, v)
-    )
+    o.extraHeaders.foreach((k, v) => msg.setHeader(k, v))
 
     def textPart(): MimeBodyPart = {
       val p = new MimeBodyPart()
       p.setText(o.text, "UTF-8", "plain")
       p
     }
-    def htmlPart(
-      h: String
-    ): MimeBodyPart = {
+    def htmlPart(h: String): MimeBodyPart = {
       val p = new MimeBodyPart()
       p.setText(h, "UTF-8", "html")
       p
     }
-    def calendarPart(
-      method: String,
-      ics: String
-    ): MimeBodyPart = {
+    def calendarPart(method: String, ics: String): MimeBodyPart = {
       val p = new MimeBodyPart()
       p.setContent(ics, s"text/calendar; method=$method; charset=UTF-8")
       p.setHeader("Content-Transfer-Encoding", "base64")
@@ -140,9 +117,7 @@ object Compose {
     out.toByteArray
   }
 
-  private def attachmentPart(
-    a: Attachment
-  ): MimeBodyPart = {
+  private def attachmentPart(a: Attachment): MimeBodyPart = {
     val p = new MimeBodyPart()
     p.setDataHandler(new DataHandler(new ByteArrayDataSource(a.data, a.contentType)))
     p.setFileName(MimeUtility.encodeText(a.filename, "UTF-8", "B"))
@@ -156,52 +131,34 @@ object Compose {
   }
 
   /** 件名の Re: / Fwd: を付ける（重ねない）。 */
-  def replySubject(
-    s: String
-  ): String = if s.trim.toLowerCase.matches("^(re|aw|sv|返信)\\s*[:：].*") then s else s"Re: $s"
-  def forwardSubject(
-    s: String
-  ): String = if s.trim.toLowerCase.matches("^(fwd?|転送)\\s*[:：].*") then s else s"Fwd: $s"
+  def replySubject(s: String): String = if s.trim.toLowerCase.matches("^(re|aw|sv|返信)\\s*[:：].*") then s else s"Re: $s"
+  def forwardSubject(s: String): String = if s.trim.toLowerCase.matches("^(fwd?|転送)\\s*[:：].*") then s else s"Fwd: $s"
 
   /** スレッドの判定に使う件名（Re: などを取り除く）。 */
-  def baseSubject(
-    s: String
-  ): String =
+  def baseSubject(s: String): String =
     s.replaceAll("(?i)^(\\s*(re|fwd?|aw|sv|返信|転送)(\\[\\d+\\])?\\s*[:：]\\s*)+", "").replaceAll("\\s+", " ").trim
 
   /** 引用の本文（"> " を付ける）。 */
-  def quote(
-    text: String
-  ): String =
+  def quote(text: String): String =
     text.replace("\r\n", "\n").split("\n", -1).map(l => if l.startsWith(">") then ">" + l else "> " + l).mkString("\n")
 
   /** 配送できなかったことを知らせるメール（DSN、RFC 3464）。 */
-  def bounce(
-    postmaster: MailAddress,
-    to: String,
-    original: Array[Byte],
-    failed: List[(String, String)],
-    reportingHost: String,
-    now: Instant,
-    zone: ZoneId
-  ): Array[Byte] = {
+  def bounce(postmaster: MailAddress,
+             to: String,
+             original: Array[Byte],
+             failed: List[(String, String)],
+             reportingHost: String,
+             now: Instant,
+             zone: ZoneId): Array[Byte] = {
     val origHeaders = Mime.latin1(original, 0, Mime.headerEnd(original, 0, original.length))
     val boundary = "=_dsn_" + Compose.newMessageId(reportingHost).replaceAll("[<>@.]", "")
     val human =
       s"""次の宛先にメールを配送できませんでした。
          |This is the mail system at $reportingHost. Your message could not be delivered to the following recipient(s).
          |
-         |""".stripMargin + failed.map(
-        (
-          r,
-          e
-        ) => s"<$r>: $e"
-      ).mkString("\n") + "\n"
+         |""".stripMargin + failed.map((r, e) => s"<$r>: $e").mkString("\n") + "\n"
     val status = failed.map {
-      (
-        r,
-        e
-      ) =>
+      (r, e) =>
         {
           val code = """\b([245]\.\d{1,3}\.\d{1,3})\b""".r.findFirstIn(e).getOrElse("5.0.0")
           s"Final-Recipient: rfc822; $r\r\nAction: failed\r\nStatus: $code\r\nDiagnostic-Code: smtp; ${e.replaceAll("[\r\n]+", " ").take(500)}\r\n"
@@ -226,9 +183,7 @@ object Compose {
   }
 
   /** 改行を CRLF にそろえる（単独の CR・LF も CRLF にする）。 */
-  def crlf(
-    bytes: Array[Byte]
-  ): Array[Byte] = {
+  def crlf(bytes: Array[Byte]): Array[Byte] = {
     val out = new java.io.ByteArrayOutputStream(bytes.length + 64)
     var i = 0
     while i < bytes.length do {

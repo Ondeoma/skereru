@@ -9,10 +9,7 @@ import javax.naming.directory.InitialDirContext
 import javax.naming.{NameNotFoundException, NamingException}
 
 /** JNDI（JDK 標準）の DNS。servers が空なら OS の設定を使う。結果は ttlSeconds の間覚えておく。 */
-final class JndiDns(
-  servers: List[String],
-  timeoutMs: Int = 3000,
-  ttlSeconds: Int = 300) extends Dns {
+final class JndiDns(servers: List[String], timeoutMs: Int = 3000, ttlSeconds: Int = 300) extends Dns {
 
   private val cache = new ConcurrentHashMap[String, (Long, Either[String, List[String]])]()
 
@@ -25,10 +22,7 @@ final class JndiDns(
     e
   }
 
-  private def query(
-    name: String,
-    kind: String
-  ): Either[String, List[String]] = {
+  private def query(name: String, kind: String): Either[String, List[String]] = {
     val key = s"$kind:$name"
     val now = System.currentTimeMillis()
     Option(cache.get(key)).filter(_._1 > now).map(_._2).getOrElse {
@@ -56,9 +50,7 @@ final class JndiDns(
   }
 
   /** TXT の値（"…" "…" に分かれた文字列は連結する）。 */
-  def txt(
-    name: String
-  ): Either[String, List[String]] =
+  def txt(name: String): Either[String, List[String]] =
     query(name, "TXT").map(_.map { raw =>
       val parts = "\"((?:[^\"\\\\]|\\\\.)*)\"".r.findAllMatchIn(raw).map(_.group(1).replace(
         "\\\"",
@@ -67,17 +59,13 @@ final class JndiDns(
       if parts.isEmpty then raw else parts.mkString
     })
 
-  def addresses(
-    name: String
-  ): Either[String, List[InetAddress]] =
+  def addresses(name: String): Either[String, List[InetAddress]] =
     for {
       a <- query(name, "A")
       aaaa <- query(name, "AAAA")
     } yield (a ++ aaaa).flatMap(s => scala.util.Try(InetAddress.getByName(s)).toOption)
 
-  def mx(
-    name: String
-  ): Either[String, List[(Int, String)]] =
+  def mx(name: String): Either[String, List[(Int, String)]] =
     query(name, "MX").map(_.flatMap { r =>
       r.trim.split("\\s+") match {
         case Array(p, h) => p.toIntOption.map(_ -> h.stripSuffix(".").toLowerCase)
@@ -85,9 +73,7 @@ final class JndiDns(
       }
     }.sortBy(_._1))
 
-  def ptr(
-    ip: InetAddress
-  ): Either[String, List[String]] = {
+  def ptr(ip: InetAddress): Either[String, List[String]] = {
     val name = ip match {
       case a: java.net.Inet4Address => a.getAddress.reverse.map(b => (b & 0xff).toString).mkString(".") +
           ".in-addr.arpa"
@@ -99,16 +85,11 @@ final class JndiDns(
   }
 
   /** 逆引きの名前で、正引きすると同じ IP に戻るもの（FCrDNS）。 */
-  def verifiedReverse(
-    ip: InetAddress
-  ): Option[String] =
+  def verifiedReverse(ip: InetAddress): Option[String] =
     ptr(ip).toOption.toList.flatten.take(5).find(n => addresses(n).toOption.exists(_.contains(ip)))
 
   /** DNSBL に載っているか（zones のうち載っているもの）。 */
-  def dnsbl(
-    ip: InetAddress,
-    zones: List[String]
-  ): List[String] = ip match {
+  def dnsbl(ip: InetAddress, zones: List[String]): List[String] = ip match {
     case a: java.net.Inet4Address =>
       val rev = a.getAddress.reverse.map(b => (b & 0xff).toString).mkString(".")
       zones.filter { z =>

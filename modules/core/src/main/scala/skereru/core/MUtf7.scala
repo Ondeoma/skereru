@@ -4,9 +4,7 @@ import java.nio.charset.StandardCharsets
 
 /** IMAP のメールボックス名の修正 UTF-7（RFC 3501 5.1.3）。 */
 object MUtf7 {
-  def encode(
-    s: String
-  ): String = {
+  def encode(s: String): String = {
     val out = new StringBuilder
     val buf = new StringBuilder
     def flush(): Unit = if buf.nonEmpty then {
@@ -27,9 +25,7 @@ object MUtf7 {
     out.toString
   }
 
-  def decode(
-    s: String
-  ): String = {
+  def decode(s: String): String = {
     val out = new StringBuilder
     var i = 0
     while i < s.length do

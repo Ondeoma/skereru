@@ -7,17 +7,14 @@ import java.util.Locale
 import scala.collection.mutable.ArrayBuffer
 
 /** IMAP のコマンド行（リテラルを含めて組み立て済みのバイト列）を前から読む。 */
-final class ImapReader(
-  bytes: Array[Byte]) {
+final class ImapReader(bytes: Array[Byte]) {
   private var pos = 0
 
   def remaining: Int = bytes.length - pos
 
   /** 読む位置（先読みして戻すため）。 */
   def position: Int = pos
-  def rewind(
-    p: Int
-  ): Unit = pos = p
+  def rewind(p: Int): Unit = pos = p
   def atEnd: Boolean = {
     skipCrlf()
     pos >= bytes.length
@@ -45,24 +42,17 @@ final class ImapReader(
 
   def peekChar: Char = if pos < bytes.length then bytes(pos).toChar else '\u0000'
 
-  def expect(
-    c: Char
-  ): Unit = {
+  def expect(c: Char): Unit = {
     if peek != c then throw ImapSyntax(s"expected '$c'")
     pos += 1
   }
 
-  private def isAtomChar(
-    c: Int
-  ): Boolean =
+  private def isAtomChar(c: Int): Boolean =
     c > 0x20 && c < 0x7f && c != '(' && c != ')' && c != '{' && c != '"' && c != '\\' && c != '%' && c != '*' &&
       c != ']'
 
   /** atom（「]」や「*」「%」を許すかは引数で）。 */
-  def atom(
-    extra: String = "",
-    stop: String = ""
-  ): String = {
+  def atom(extra: String = "", stop: String = ""): String = {
     val st = pos
     while pos < bytes.length && (isAtomChar(peek) || extra.indexOf(peek) >= 0) && stop.indexOf(peek) < 0 do pos += 1
     if pos == st then throw ImapSyntax("expected atom")
@@ -297,10 +287,7 @@ final class ImapReader(
       val k = atom().toUpperCase
       def arg(): String = { sp(); astring() }
       def darg(): LocalDate = { sp(); date() }
-      def flag(
-        f: String,
-        set: Boolean
-      ) = SearchKey.Flag(f, set)
+      def flag(f: String, set: Boolean) = SearchKey.Flag(f, set)
       k match {
         case "ALL" => SearchKey.All
         case "ANSWERED" => flag("\\Answered", true)

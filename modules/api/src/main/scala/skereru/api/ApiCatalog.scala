@@ -2,10 +2,7 @@ package skereru.api
 
 /** REST API の一覧（MCP の list_api_endpoints と GET /api/endpoints）。 */
 object ApiCatalog {
-  final case class Endpoint(
-    method: String,
-    path: String,
-    description: String)
+  final case class Endpoint(method: String, path: String, description: String)
   val all: List[Endpoint] = List(
     Endpoint("GET", "/api/me", "自分の情報（アドレス・容量・スコープ）"),
     Endpoint("GET", "/api/me/settings", "個人の設定（署名・自動返信・画像の表示・許可/拒否する差出人）"),

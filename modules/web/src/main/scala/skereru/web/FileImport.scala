@@ -17,35 +17,21 @@ import scala.scalajs.js.typedarray.{DataView, Uint8Array}
 object FileImport {
 
   /** 進み具合: 読んだ量・全体・取り込んだ数・重複・失敗・読んでいるファイル. */
-  final case class Progress(
-    read: Double,
-    total: Double,
-    imported: Int,
-    skipped: Int,
-    failed: Int,
-    file: String)
+  final case class Progress(read: Double, total: Double, imported: Int, skipped: Int, failed: Int, file: String)
 
   private val Chunk = 4 * 1024 * 1024 // ファイルを読む単位
   private val Batch = 6 * 1024 * 1024 // 1回に送る量の目安
   private val MaxMessage = 24 * 1024 * 1024 // サーバーが1回に受け取れる量に収まる1通の大きさ
 
   /** b の i から "From " が始まるか. */
-  private def startsFrom(
-    b: Uint8Array,
-    i: Int
-  ): Boolean =
+  private def startsFrom(b: Uint8Array, i: Int): Boolean =
     i + 4 < b.length && b(i) == 0x46 && b(i + 1) == 0x72 && b(i + 2) == 0x6f && b(i + 3) == 0x6d && b(i + 4) == 0x20
 
   /** mbox の "From " 行（区切り）の位置. 行頭の "From " だけを区切りとみなす. */
-  private def isFromLine(
-    b: Uint8Array,
-    i: Int
-  ): Boolean = startsFrom(b, i) && (i == 0 || b(i - 1) == 0x0a)
+  private def isFromLine(b: Uint8Array, i: Int): Boolean = startsFrom(b, i) && (i == 0 || b(i - 1) == 0x0a)
 
   /** 1通（"From " 行を含む）から、区切りの行を除き、">From " のエスケープ（mboxrd）を戻す. */
-  private def unmbox(
-    b: Uint8Array
-  ): Uint8Array = {
+  private def unmbox(b: Uint8Array): Uint8Array = {
     var start = 0
     if (isFromLine(b, 0)) { while (start < b.length && b(start) != 0x0a) start += 1; start += 1 }
     val out = new Uint8Array(b.length - math.min(start, b.length))
@@ -67,32 +53,18 @@ object FileImport {
     out.subarray(0, o)
   }
 
-  private def read(
-    file: dom.File,
-    from: Double,
-    to: Double
-  ): Future[Uint8Array] =
+  private def read(file: dom.File, from: Double, to: Double): Future[Uint8Array] =
     file.slice(from, to).arrayBuffer().toFuture.map(new Uint8Array(_))
 
   /** .eml（1通）か mbox（何通か）か. 先頭が "From " なら mbox. */
-  private def isMbox(
-    file: dom.File
-  ): Future[Boolean] = read(file, 0, 5).map(isFromLine(_, 0))
+  private def isMbox(file: dom.File): Future[Boolean] = read(file, 0, 5).map(isFromLine(_, 0))
 
-  private def each[A](
-    xs: List[A]
-  )(
-    f: A => Future[Unit]
-  ): Future[Unit] = xs match {
+  private def each[A](xs: List[A])(f: A => Future[Unit]): Future[Unit] = xs match {
     case Nil => Future.unit
     case h :: t => f(h).flatMap(_ => each(t)(f))
   }
 
-  private def whileF(
-    cond: => Boolean
-  )(
-    body: => Future[Unit]
-  ): Future[Unit] =
+  private def whileF(cond: => Boolean)(body: => Future[Unit]): Future[Unit] =
     if (!cond) Future.unit else body.flatMap(_ => whileF(cond)(body))
 
   /**
@@ -100,11 +72,7 @@ object FileImport {
    * cancelled() が true になったら止める（サーバーの取り込みも取り消す）.
    * ラベルのない（Gmail 以外の）メールは、mbox ならファイル名のフォルダ、.eml なら「取り込み」に入れる.
    */
-  def run(
-    fileList: dom.FileList,
-    onProgress: Progress => Unit,
-    cancelled: () => Boolean
-  ): Future[Progress] = {
+  def run(fileList: dom.FileList, onProgress: Progress => Unit, cancelled: () => Boolean): Future[Progress] = {
     val files = (0 until fileList.length).map(fileList(_)).toList
     var counts = Progress(0, files.map(_.size).sum, 0, 0, 0, "")
     if (files.isEmpty) return Future.successful(counts)
@@ -141,9 +109,7 @@ object FileImport {
           }
         }
 
-      def add(
-        msg: Uint8Array
-      ): Future[Unit] =
+      def add(msg: Uint8Array): Future[Unit] =
         if (msg.length == 0) Future.unit
         else if (msg.length > MaxMessage) { tooLarge += 1; Future.unit }
         else {
@@ -154,10 +120,7 @@ object FileImport {
 
       // mbox: 読んだ分の中で "From " の行ごとに分ける. 最後の1通は、次の読み込みとつなげる.
       // フォルダが変わるので、前のファイルの分は先に送る
-      def mbox(
-        file: dom.File,
-        done: Double
-      ): Future[Unit] = flush().flatMap { _ =>
+      def mbox(file: dom.File, done: Double): Future[Unit] = flush().flatMap { _ =>
         folder = s"取り込み/${file.name.replaceAll("(?i)\\.(mbox|mbx)$", "")}"
         var carry = new Uint8Array(0)
         var pos = 0.0

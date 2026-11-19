@@ -9,18 +9,14 @@ import java.util.Locale
 object ImapFormat {
 
   /** 文字列を引用符で囲む。改行・8bit を含むならリテラルにする（呼び出し側でバイト列として送る）。 */
-  def quote(
-    s: String
-  ): String =
+  def quote(s: String): String =
     if s.exists(c => c == '\r' || c == '\n' || c > 0x7e || c < 0x20) then {
       val b = s.getBytes(StandardCharsets.UTF_8)
       s"{${b.length}}\r\n" + new String(b, StandardCharsets.ISO_8859_1)
     } else "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
   /** ヘッダーの生の値（ISO-8859-1 で読んだもの）を nstring にする。 */
-  def nstringRaw(
-    s: Option[String]
-  ): String = s match {
+  def nstringRaw(s: Option[String]): String = s match {
     case None => "NIL"
     case Some(v) =>
       if v.exists(c => c == '\r' || c == '\n' || c > 0x7e || c < 0x20 || c == '"' || c == '\\') then
@@ -28,45 +24,31 @@ object ImapFormat {
       else "\"" + v + "\""
   }
 
-  def nstring(
-    s: Option[String]
-  ): String = s.fold("NIL")(quote)
+  def nstring(s: Option[String]): String = s.fold("NIL")(quote)
 
-  def astring(
-    s: String
-  ): String =
+  def astring(s: String): String =
     if s.nonEmpty && s.forall(c => c > 0x20 && c < 0x7f && !"(){ %*\"\\]".contains(c)) then s else quote(s)
 
   /** メールボックス名（修正 UTF-7 にして引用する）。 */
-  def mailbox(
-    name: String
-  ): String = quote(MUtf7.encode(name))
+  def mailbox(name: String): String = quote(MUtf7.encode(name))
 
   private val internalFmt = DateTimeFormatter.ofPattern("dd-MMM-yyyy HH:mm:ss Z", Locale.ENGLISH)
-  def internalDate(
-    t: java.time.Instant,
-    zone: java.time.ZoneId
-  ): String = "\"" + internalFmt.format(t.atZone(zone)) + "\""
+  def internalDate(t: java.time.Instant, zone: java.time.ZoneId): String = "\"" + internalFmt.format(t.atZone(zone)) +
+    "\""
 
   /** APPEND の日時（"17-Jul-1996 02:44:25 -0700"）。 */
-  def parseInternalDate(
-    s: String
-  ): Option[java.time.Instant] =
+  def parseInternalDate(s: String): Option[java.time.Instant] =
     scala.util.Try(ZonedDateTime.parse(s.trim.replaceFirst("^ ", "0"), internalFmt).toInstant)
       .orElse(scala.util.Try(ZonedDateTime.parse(
         s.trim,
         DateTimeFormatter.ofPattern("d-MMM-yyyy HH:mm:ss Z", Locale.ENGLISH)
       ).toInstant)).toOption
 
-  private def addressList(
-    raw: Option[String]
-  ): String =
+  private def addressList(raw: Option[String]): String =
     raw.map(Address.parseGroups).filter(_.nonEmpty) match {
       case None => "NIL"
       case Some(items) =>
-        def one(
-          a: MailAddress
-        ) =
+        def one(a: MailAddress) =
           s"(${nstringRaw(a.name)} NIL ${nstringRaw(Some(a.local))} ${
               if a.domain.isEmpty then "NIL" else nstringRaw(Some(a.domain))
             })"
@@ -77,12 +59,8 @@ object ImapFormat {
         }.mkString + ")"
     }
 
-  def envelope(
-    p: MimePart
-  ): String = {
-    def h(
-      n: String
-    ) = p.header(n)
+  def envelope(p: MimePart): String = {
+    def h(n: String) = p.header(n)
     val from = h("From")
     List(
       nstringRaw(h("Date")),
@@ -98,24 +76,13 @@ object ImapFormat {
     ).mkString("(", " ", ")")
   }
 
-  private def params(
-    pv: ParamValue
-  ): String =
+  private def params(pv: ParamValue): String =
     if pv.params.isEmpty then "NIL"
     else
-      pv.params.toList.sortBy(_._1).map(
-        (
-          k,
-          v
-        ) => s"${quote(k.toUpperCase)} ${quote(v)}"
-      ).mkString("(", " ", ")")
+      pv.params.toList.sortBy(_._1).map((k, v) => s"${quote(k.toUpperCase)} ${quote(v)}").mkString("(", " ", ")")
 
   /** BODY / BODYSTRUCTURE（extended=true で拡張データつき）。 */
-  def bodyStructure(
-    msg: Array[Byte],
-    p: MimePart,
-    extended: Boolean
-  ): String =
+  def bodyStructure(msg: Array[Byte], p: MimePart, extended: Boolean): String =
     if p.isMultipart then {
       val kids = if p.children.isEmpty then "(\"text\" \"plain\" NIL NIL NIL \"7bit\" 0 0)"
       else p.children.map(bodyStructure(msg, _, extended)).mkString
@@ -142,23 +109,14 @@ object ImapFormat {
       (base ++ typeSpecific ++ ext).mkString("(", " ", ")")
     }
 
-  private def disp(
-    p: MimePart
-  ): String = p.disposition match {
+  private def disp(p: MimePart): String = p.disposition match {
     case None => "NIL"
     case Some(pv) => s"(${quote(pv.value.toLowerCase)} ${params(pv)})"
   }
 
   /** BODY[section] の中身（バイト列）。部品が存在しなければ空。 */
-  def sectionBytes(
-    msg: Array[Byte],
-    root: MimePart,
-    s: Section
-  ): Array[Byte] = {
-    def slice(
-      a: Int,
-      b: Int
-    ) = java.util.Arrays.copyOfRange(msg, a, math.max(a, b))
+  def sectionBytes(msg: Array[Byte], root: MimePart, s: Section): Array[Byte] = {
+    def slice(a: Int, b: Int) = java.util.Arrays.copyOfRange(msg, a, math.max(a, b))
     // 部品番号の先の対象（HEADER・TEXT は message/rfc822 の中身のメッセージ）
     root.part(s.path) match {
       case None => Array.emptyByteArray

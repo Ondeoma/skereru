@@ -25,35 +25,28 @@ enum ImportOutcome {
 }
 
 /** IMAP の取り込みの接続先（暗号化して import_job に置く）。 */
-final case class ImapSource(
-  host: String,
-  port: Int,
-  user: String,
-  password: String) derives io.circe.Encoder.AsObject, io.circe.Decoder
+final case class ImapSource(host: String, port: Int, user: String, password: String) derives io.circe.Encoder.AsObject,
+    io.circe.Decoder
 
 /**
  * ほかのサービス（Gmail など）からのメールの取り込み。
  * 同じ本体（内容の HMAC が同じ）のメッセージがすでにあれば取り込まないので、途中で止まっても最初からやり直せばよい。
  */
-final class Importer(
-  mail: MailStore,
-  store: ImportStore,
-  blobs: skereru.storage.Blobs,
-  box: SecretBox,
-  dns: JndiDns,
-  cfg: MailConfig,
-  log: String => Unit,
-  notify: UUID => IO[Unit]) {
+final class Importer(mail: MailStore,
+                     store: ImportStore,
+                     blobs: skereru.storage.Blobs,
+                     box: SecretBox,
+                     dns: JndiDns,
+                     cfg: MailConfig,
+                     log: String => Unit,
+                     notify: UUID => IO[Unit]) {
 
   // ---------------------------------------------------------------- 1通の取り込み（IMAP・ファイルで共通）
 
   /** 取り込み先のメールボックス（フォルダはなければ作る）。1回の取り込みの間、名前ごとに覚えておく。 */
-  final class Boxes(
-    userId: UUID) {
+  final class Boxes(userId: UUID) {
     private val cache = scala.collection.mutable.Map.empty[ImportTarget, UUID]
-    def apply(
-      t: ImportTarget
-    ): IO[UUID] = cache.get(t) match {
+    def apply(t: ImportTarget): IO[UUID] = cache.get(t) match {
       case Some(id) => IO.pure(id)
       case None =>
         val found: IO[Mailbox] = t match {
@@ -79,22 +72,17 @@ final class Importer(
   }
 
   /** 1通を取り込む。targets のそれぞれに入れる（本体は1つだけ保存される）。 */
-  def importOne(
-    userId: UUID,
-    raw: Array[Byte],
-    boxes: Boxes,
-    p: Placement,
-    date: Option[Instant],
-    onlyIfNew: Boolean = false
-  ): IO[ImportOutcome] =
+  def importOne(userId: UUID,
+                raw: Array[Byte],
+                boxes: Boxes,
+                p: Placement,
+                date: Option[Instant],
+                onlyIfNew: Boolean = false): IO[ImportOutcome] =
     if raw.length > cfg.maxMessageBytes then IO.pure(ImportOutcome.TooLarge)
     else if p.targets.isEmpty then IO.pure(ImportOutcome.Duplicate)
     else
       mail.quota(userId, cfg.defaultQuotaBytes).flatMap {
-        (
-          quota,
-          used
-        ) =>
+        (quota, used) =>
           if used + raw.length > quota then IO.pure(ImportOutcome.OverQuota)
           else
             blobs.put(raw).flatMap { blobId =>
@@ -123,10 +111,7 @@ final class Importer(
       }
 
   /** ファイル（mbox・.eml）の1通の置き場所。Google Takeout の mbox は X-Gmail-Labels のとおりに、それ以外は folder に入れる。 */
-  def filePlacement(
-    raw: Array[Byte],
-    folder: String
-  ): Placement = {
+  def filePlacement(raw: Array[Byte], folder: String): Placement = {
     // ヘッダーだけを読む
     val headers = Mime.parseHeaders(Mime.latin1(raw, 0, Mime.headerEnd(raw, 0, raw.length)))
     headers.find(_.name.equalsIgnoreCase("X-Gmail-Labels")).map(_.raw) match {
@@ -140,13 +125,11 @@ final class Importer(
    * ファイルの取り込みで、画面が送った何通か（[4バイトの長さ][本体]の並び）を取り込む。
    * tooLarge: 画面が大きすぎて送らなかった数（失敗に数える）。改行は CRLF にそろえる（IMAP で取り込んだものと同じ本体になる）。
    */
-  def importBatch(
-    userId: UUID,
-    jobId: UUID,
-    framed: Array[Byte],
-    folder: String,
-    tooLarge: Int = 0
-  ): IO[Either[String, ImportBatchDto]] =
+  def importBatch(userId: UUID,
+                  jobId: UUID,
+                  framed: Array[Byte],
+                  folder: String,
+                  tooLarge: Int = 0): IO[Either[String, ImportBatchDto]] =
     store.find(userId, jobId).flatMap {
       case None => IO.pure(Left("取り込みが見つかりません"))
       case Some(j) if j.kind != "file" || j.status != "running" => IO.pure(Left("この取り込みは終わっています"))
@@ -156,9 +139,7 @@ final class Importer(
           case Some(msgs) =>
             val boxes = new Boxes(userId)
             // ラベルのヘッダーは置き場所に使ったら外す（書き出したものを戻したときや、IMAP で取り込んだものと同じ本体になり、重複として扱える）
-            def strip(
-              raw: Array[Byte]
-            ) = RawHeaders.filter(raw)(h =>
+            def strip(raw: Array[Byte]) = RawHeaders.filter(raw)(h =>
               !h.name.equalsIgnoreCase("X-Gmail-Labels") && !h.name.equalsIgnoreCase("X-GM-THRID")
             )
             msgs.map(Compose.crlf).traverse(raw =>
@@ -181,10 +162,7 @@ final class Importer(
   // ---------------------------------------------------------------- IMAP
 
   /** IMAP の取り込みを始める（ログインできるか先に確かめる。接続情報は暗号化して置き、終わったら消す）。 */
-  def startImap(
-    userId: UUID,
-    src: ImapSource
-  ): IO[Either[String, ImportJobDto]] = {
+  def startImap(userId: UUID, src: ImapSource): IO[Either[String, ImportJobDto]] = {
     val host = src.host.trim.toLowerCase
     if host.isEmpty || src.user.trim.isEmpty || src.password.isEmpty then IO.pure(Left("サーバー・ユーザー名・パスワードを入力してください"))
     else if !(Address.validDomain(host) || host.headOption.exists(_.isDigit)) || host.length > 253 then
@@ -207,9 +185,7 @@ final class Importer(
   }
 
   /** 待っている IMAP の取り込みを1つ引き受けて、最後まで進める（定期処理から呼ぶ）。 */
-  def runNext(
-    node: String
-  ): IO[Unit] =
+  def runNext(node: String): IO[Unit] =
     store.claimImap(node).flatMap(_.traverse_ { job =>
       (IO(box.decrypt(job.secret).toRight(new IllegalStateException("接続情報を読めません")).flatMap(decode[ImapSource](_)).fold(
         throw _,
@@ -221,17 +197,12 @@ final class Importer(
       } *> notify(job.userId)
     })
 
-  private def runImap(
-    job: ImapJob,
-    src: ImapSource
-  ): IO[Unit] = Dispatcher.sequential[IO].use(d =>
+  private def runImap(job: ImapJob, src: ImapSource): IO[Unit] = Dispatcher.sequential[IO].use(d =>
     IO.blocking(withStore(src) { st =>
       import jakarta.mail.*
       val boxes = new Boxes(job.userId)
       val b = new Bridge(d)
-      def run[A](
-        io: IO[A]
-      ): A = b.run(io)
+      def run[A](io: IO[A]): A = b.run(io)
       def cancelled = run(store.status(job.id)).contains("cancelled")
       val folders = st.getDefaultFolder.list("*").toList
       val plans = folders.map { f =>
@@ -244,10 +215,7 @@ final class Importer(
       // 「すべてのメール」は最後に（ほかのフォルダで取り込んでいないもの＝アーカイブだけを取り込む）
       val ordered = plans.filter(_._2 != ImapFolderPlan.AllMail) ++ plans.filter(_._2 == ImapFolderPlan.AllMail)
       ordered.foreach {
-        (
-          f,
-          plan
-        ) =>
+        (f, plan) =>
           {
             val (target, onlyIfNew) = plan match {
               case ImapFolderPlan.Into(t) => (Some(t), false)
@@ -302,11 +270,7 @@ final class Importer(
   )
 
   /** IMAP につないで f を呼ぶ。接続先は確かめた IP に固定する（名前を引き直させない＝DNS リバインディングの対策）。 */
-  private def withStore[A](
-    src: ImapSource
-  )(
-    f: jakarta.mail.Store => A
-  ): A = {
+  private def withStore[A](src: ImapSource)(f: jakarta.mail.Store => A): A = {
     val ip = NetPolicy.resolve(dns, src.host, cfg.outboundAllowPrivate).fold(
       e => throw new IllegalArgumentException(e),
       identity
@@ -334,18 +298,14 @@ final class Importer(
   }
 
   /** 待ち（queued）の IMAP の取り込みを、どれかのノードが引き受けるまで定期的に確かめる。 */
-  def loop(
-    node: String
-  ): IO[Nothing] =
+  def loop(node: String): IO[Nothing] =
     Periodic.run(20.seconds, 10.seconds, ErrorCode.ImportWorkerFailed)(runNext(node) *> store.expireStale())
 }
 
 object Importer {
 
   /** [4バイトの長さ（ビッグエンディアン）][本体] の並びを分ける。形が正しくなければ None。 */
-  def unframe(
-    b: Array[Byte]
-  ): Option[List[Array[Byte]]] = {
+  def unframe(b: Array[Byte]): Option[List[Array[Byte]]] = {
     val out = scala.collection.mutable.ListBuffer.empty[Array[Byte]]
     var i = 0
     var ok = true
@@ -360,9 +320,7 @@ object Importer {
   }
 
   /** 画面に見せる失敗の理由（パスワードなどを含めない）。 */
-  def reason(
-    e: Throwable
-  ): String = e match {
+  def reason(e: Throwable): String = e match {
     case _: jakarta.mail.AuthenticationFailedException => "ユーザー名かパスワードが違います（Gmail はアプリ パスワードが必要です）"
     case e: IllegalArgumentException => Option(e.getMessage).getOrElse("接続先が正しくありません")
     case _: java.net.UnknownHostException => "サーバーが見つかりません"

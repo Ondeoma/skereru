@@ -11,13 +11,12 @@ import skereru.db.*
 import scala.concurrent.duration.*
 
 /** 送信待ちの処理（全ノードで動き、SKIP LOCKED で取り合わない）。送れなかったものは差出人に知らせる。 */
-final class OutboundWorker(
-  queue: QueueStore,
-  blobs: skereru.storage.Blobs,
-  client: SmtpClient,
-  delivery: Delivery,
-  cfg: MailConfig,
-  log: String => Unit) {
+final class OutboundWorker(queue: QueueStore,
+                           blobs: skereru.storage.Blobs,
+                           client: SmtpClient,
+                           delivery: Delivery,
+                           cfg: MailConfig,
+                           log: String => Unit) {
 
   def loop: IO[Nothing] =
     (IO.sleep(5.seconds) *>
@@ -44,19 +43,14 @@ final class OutboundWorker(
             "smtp.outbound",
             "mail.domain" -> o.domain,
             "mail.rcpts" -> batch.size.toString
-          )(
-            IO.blocking(client.deliver(o.domain, o.sender, batch.map(_.recipient), raw))
-          ).flatMap { res =>
+          )(IO.blocking(client.deliver(o.domain, o.sender, batch.map(_.recipient), raw))).flatMap { res =>
             val perm =
               batch.flatMap(x => res.get(x.recipient).collect { case RcptResult.Perm(m) => x.recipient -> m })
             val sent = batch.count(x => res.get(x.recipient).contains(RcptResult.Ok))
             val temp = batch.size - sent - perm.size
             // 外への送信の結果（宛先ごと）
             List("sent" -> sent, "bounced" -> perm.size, "tempfail" -> temp).traverse_ {
-              (
-                r,
-                n
-              ) =>
+              (r, n) =>
                 IO.whenA(n > 0)(sbirds.observe.Metrics.add("skereru.mail.sent", n.toLong, "result" -> r))
             } *>
               queue.log(

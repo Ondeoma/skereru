@@ -8,16 +8,12 @@ import java.net.{InetAddress, InetSocketAddress, ServerSocket, SocketTimeoutExce
 /** TCP の待ち受け。接続ごとに仮想スレッドで handler を動かす。 */
 object TcpServer {
 
-  def resource(
-    l: Listener,
-    bind: String,
-    tls: Option[TlsHolder],
-    limits: ConnLimits,
-    proxyFrom: List[(InetAddress, Int)],
-    log: String => Unit
-  )(
-    handler: Conn => Unit
-  ): Resource[IO, Unit] =
+  def resource(l: Listener,
+               bind: String,
+               tls: Option[TlsHolder],
+               limits: ConnLimits,
+               proxyFrom: List[(InetAddress, Int)],
+               log: String => Unit)(handler: Conn => Unit): Resource[IO, Unit] =
     Resource.make(IO.blocking {
       val ss = new ServerSocket()
       ss.setReuseAddress(true)
@@ -26,22 +22,15 @@ object TcpServer {
         acceptLoop(ss, l, tls, limits, proxyFrom, log, handler)
       )
       (ss, t)
-    })(
-      (
-        ss,
-        _
-      ) => IO.blocking(ss.close())
-    ).void
+    })((ss, _) => IO.blocking(ss.close())).void
 
-  private def acceptLoop(
-    ss: ServerSocket,
-    l: Listener,
-    tls: Option[TlsHolder],
-    limits: ConnLimits,
-    proxyFrom: List[(InetAddress, Int)],
-    log: String => Unit,
-    handler: Conn => Unit
-  ): Unit =
+  private def acceptLoop(ss: ServerSocket,
+                         l: Listener,
+                         tls: Option[TlsHolder],
+                         limits: ConnLimits,
+                         proxyFrom: List[(InetAddress, Int)],
+                         log: String => Unit,
+                         handler: Conn => Unit): Unit =
     while !ss.isClosed do
       try {
         val s = ss.accept()
@@ -56,12 +45,7 @@ object TcpServer {
               s.setSoTimeout(60_000)
               s.setTcpNoDelay(true)
               val conn = new Conn(s, ip, l.port)
-              val viaProxy = proxyFrom.exists(
-                (
-                  net,
-                  bits
-                ) => skereru.core.Cidr.contains(net, bits, ip)
-              )
+              val viaProxy = proxyFrom.exists((net, bits) => skereru.core.Cidr.contains(net, bits, ip))
               if viaProxy then {
                 // PROXY ヘッダーは 10 秒以内に来なければ切る
                 s.setSoTimeout(10_000)

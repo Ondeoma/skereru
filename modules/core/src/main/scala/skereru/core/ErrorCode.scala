@@ -8,10 +8,7 @@ package skereru.core
  * 9xxx: サーバー内部・バックグラウンドの処理（90xx: 起動・ヘルスチェック, 91xx: 定期処理, 92xx: 配送）.
  * IMAP・POP3・SMTP・OAuth の応答はそれぞれのプロトコルの形のまま（ここのコードは HTTP の API とログ用）.
  */
-enum ErrorCode(
-  val code: String,
-  val status: Int,
-  val message: String) extends sbirds.shared.ErrorCode {
+enum ErrorCode(val code: String, val status: Int, val message: String) extends sbirds.shared.ErrorCode {
   case NotLoggedIn extends ErrorCode("SKERERU-1001", 401, "ログインしてください")
   case CsrfHeaderMissing extends ErrorCode("SKERERU-1002", 403, "不正なリクエストです（X-Skereru ヘッダーがありません）")
   case ApiKeyScopeMissing extends ErrorCode("SKERERU-1003", 403, "このAPIキーには必要なスコープがありません")

@@ -5,20 +5,13 @@ import cats.syntax.all.*
 import skereru.db.MailStore
 
 /** PostgreSQL に置く（既定。冗長化は Patroni に任せる）。 */
-final class PgBlobs(
-  store: MailStore,
-  crypto: BlobCrypto,
-  cache: BlobCache) extends Blobs {
-  def put(
-    bytes: Array[Byte]
-  ): IO[String] = {
+final class PgBlobs(store: MailStore, crypto: BlobCrypto, cache: BlobCache) extends Blobs {
+  def put(bytes: Array[Byte]): IO[String] = {
     val id = crypto.id(bytes)
     store.putBlob(id, bytes.length.toLong, Some(crypto.seal(bytes))).as(id)
   }
 
-  def get(
-    id: String
-  ): IO[Option[Array[Byte]]] =
+  def get(id: String): IO[Option[Array[Byte]]] =
     cache.get(id) match {
       case Some(b) => IO.pure(Some(b))
       case None =>

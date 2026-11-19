@@ -4,9 +4,7 @@ package skereru.core
 object Dates {
   private val fmt = java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME
 
-  def parseRfc5322(
-    raw: String
-  ): Option[java.time.Instant] = {
+  def parseRfc5322(raw: String): Option[java.time.Instant] = {
     val s = raw.replaceAll("""\([^)]*\)""", "").replaceAll("\\s+", " ").trim
     // 曜日なし・秒なし・2桁の年・タイムゾーン名などの揺れを吸収する
     val noDow = s.replaceFirst("^[A-Za-z]{3},\\s*", "")
@@ -25,8 +23,5 @@ object Dates {
     }.headOption
   }
 
-  def rfc5322(
-    t: java.time.Instant,
-    zone: java.time.ZoneId
-  ): String = fmt.format(t.atZone(zone))
+  def rfc5322(t: java.time.Instant, zone: java.time.ZoneId): String = fmt.format(t.atZone(zone))
 }

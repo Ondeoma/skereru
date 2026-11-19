@@ -6,24 +6,13 @@ import java.time.Instant
 
 class ArcSpec extends munit.FunSuite {
 
-  private def bytes(
-    s: String
-  ) = s.replace("\n", "\r\n").getBytes(UTF_8)
+  private def bytes(s: String) = s.replace("\n", "\r\n").getBytes(UTF_8)
 
-  final class FakeDns(
-    txts: Map[String, List[String]]) extends Dns {
-    def txt(
-      name: String
-    ) = Right(txts.getOrElse(name.toLowerCase, Nil))
-    def addresses(
-      name: String
-    ) = Right(Nil)
-    def mx(
-      name: String
-    ) = Right(Nil)
-    def ptr(
-      ip: InetAddress
-    ) = Right(Nil)
+  final class FakeDns(txts: Map[String, List[String]]) extends Dns {
+    def txt(name: String) = Right(txts.getOrElse(name.toLowerCase, Nil))
+    def addresses(name: String) = Right(Nil)
+    def mx(name: String) = Right(Nil)
+    def ptr(ip: InetAddress) = Right(Nil)
   }
 
   private val (priv1, pub1) = Dkim.generate()

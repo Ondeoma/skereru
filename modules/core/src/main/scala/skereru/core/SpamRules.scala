@@ -42,20 +42,11 @@ object SpamRules {
   private val ArchiveExt = Set("zip", "rar", "7z", "gz", "tgz", "cab", "ace", "arj", "lzh")
 
   /** From のすべてのアドレス（From ヘッダーが複数あれば、そのすべて）。 */
-  def fromAddresses(
-    root: MimePart
-  ): List[MailAddress] = root.headerAll("From").flatMap(Address.parseList)
+  def fromAddresses(root: MimePart): List[MailAddress] = root.headerAll("From").flatMap(Address.parseList)
 
-  def evaluate(
-    in: SpamInput,
-    th: SpamThresholds
-  ): SpamVerdict = {
+  def evaluate(in: SpamInput, th: SpamThresholds): SpamVerdict = {
     val hits = scala.collection.mutable.ListBuffer.empty[SpamHit]
-    def hit(
-      rule: String,
-      score: Double,
-      d: String
-    ) = hits += SpamHit(rule, score, d)
+    def hit(rule: String, score: Double, d: String) = hits += SpamHit(rule, score, d)
     val root = in.root
     val from = root.header("From").flatMap(Address.parseOne)
     val fromDomain = from.map(_.domain).getOrElse("")
@@ -97,9 +88,7 @@ object SpamRules {
     }
     // 自分たちのドメインを名乗る、認証されていない外からのメール（なりすまし）
     // From が複数あるときは、そのすべてが認証されていること（認証された1つの陰に、自ドメインを紛れ込ませる手口があるため）
-    def aligned(
-      d: String
-    ) =
+    def aligned(d: String) =
       in.dkim.exists(r => r.pass && OrgDomain.of(r.domain) == OrgDomain.of(d)) ||
         (in.spf == SpfResult.Pass && in.mailFrom.nonEmpty &&
           OrgDomain.of(Address.domainOf(in.mailFrom)) == OrgDomain.of(d))

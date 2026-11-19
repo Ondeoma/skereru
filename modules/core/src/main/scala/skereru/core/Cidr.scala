@@ -4,11 +4,7 @@ import java.net.InetAddress
 
 /** CIDR の判定。 */
 object Cidr {
-  def contains(
-    net: InetAddress,
-    bits: Int,
-    ip: InetAddress
-  ): Boolean = {
+  def contains(net: InetAddress, bits: Int, ip: InetAddress): Boolean = {
     val a = net.getAddress; val b = ip.getAddress
     if a.length != b.length || bits < 0 || bits > a.length * 8 then false
     else {
@@ -19,9 +15,7 @@ object Cidr {
   }
 
   /** "192.0.2.0/24" や "2001:db8::/32" や単独のアドレス。 */
-  def parse(
-    s: String
-  ): Option[(InetAddress, Int)] = {
+  def parse(s: String): Option[(InetAddress, Int)] = {
     val (a, b) = s.trim.split('/') match {
       case Array(x) => (x, None)
       case Array(x, y) => (x, y.toIntOption)

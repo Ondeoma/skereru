@@ -16,16 +16,15 @@ import skereru.shared.*
 import java.util.UUID
 
 /** ドメイン・ユーザー・アドレスの管理と、DNS に設定するレコードの案内。 */
-final class AdminService(
-  xa: Transactor[IO],
-  users: UserStore,
-  domains: DomainStore,
-  mail: MailStore,
-  delivery: Delivery,
-  box: SecretBox,
-  dns: JndiDns,
-  mcfg: MailConfig,
-  cfg: ApiConfig) {
+final class AdminService(xa: Transactor[IO],
+                         users: UserStore,
+                         domains: DomainStore,
+                         mail: MailStore,
+                         delivery: Delivery,
+                         box: SecretBox,
+                         dns: JndiDns,
+                         mcfg: MailConfig,
+                         cfg: ApiConfig) {
 
   private def newKey(): (String, String, String) = {
     val (priv, pub) = Dkim.generate()
@@ -34,9 +33,7 @@ final class AdminService(
   }
 
   /** ドメイン名を正規化する（IDN は punycode に、小文字に）。 */
-  def normalizeDomain(
-    name: String
-  ): Either[AppError, String] = {
+  def normalizeDomain(name: String): Either[AppError, String] = {
     val n = scala.util.Try(java.net.IDN.toASCII(
       name.trim.stripSuffix("."),
       java.net.IDN.ALLOW_UNASSIGNED
@@ -44,9 +41,7 @@ final class AdminService(
     Either.cond(Address.validDomain(n), n, AppError(ErrorCode.DomainNameInvalid))
   }
 
-  def createDomain(
-    r: CreateDomainReq
-  ): Res[UUID] =
+  def createDomain(r: CreateDomainReq): Res[UUID] =
     normalizeDomain(r.name) match {
       case Left(f) => IO.pure(Left(f))
       case Right(n) =>
@@ -54,26 +49,20 @@ final class AdminService(
         domains.createDomain(n, r.autoProvision, sel, priv, pub).flatTap(_ => delivery.refreshDomains)
     }
 
-  def rotateDkim(
-    id: UUID
-  ): IO[Int] = {
+  def rotateDkim(id: UUID): IO[Int] = {
     val (sel, priv, pub) = newKey()
     domains.rotateDkim(id, sel, priv, pub)
   }
 
   /** DNS に設定するレコードと、今の設定が合っているか。 */
-  def dnsRecords(
-    id: UUID
-  ): Res[List[DnsRecordDto]] =
+  def dnsRecords(id: UUID): Res[List[DnsRecordDto]] =
     domains.domain(id).flatMap {
       case None => IO.pure(Left(AppError(ErrorCode.DomainNotFound)))
       case Some(d) =>
         IO.blocking {
           val host = mcfg.hostname
           val webHost = scala.util.Try(java.net.URI.create(cfg.publicUrl).getHost).toOption.getOrElse(host)
-          def txt(
-            n: String
-          ) = dns.txt(n).toOption.getOrElse(Nil)
+          def txt(n: String) = dns.txt(n).toOption.getOrElse(Nil)
           val mx = dns.mx(d.name).toOption.getOrElse(Nil)
           val spf = txt(d.name).find(_.toLowerCase.startsWith("v=spf1"))
           val dkim = txt(s"${d.dkimSelector}._domainkey.${d.name}").headOption
@@ -90,12 +79,7 @@ final class AdminService(
               s"10 $host",
               "メールの受け取り先",
               Some(mx.exists(_._2.equalsIgnoreCase(host))),
-              Option.when(mx.nonEmpty)(mx.map(
-                (
-                  p,
-                  h
-                ) => s"$p $h"
-              ).mkString(", "))
+              Option.when(mx.nonEmpty)(mx.map((p, h) => s"$p $h").mkString(", "))
             ),
             DnsRecordDto(
               "TXT",
@@ -152,9 +136,7 @@ final class AdminService(
     }
 
   /** メールのユーザーを作る（主アドレスつき）。 */
-  def createUser(
-    r: CreateUserReq
-  ): Res[UUID] =
+  def createUser(r: CreateUserReq): Res[UUID] =
     if r.name.trim.isEmpty then IO.pure(Left(AppError(ErrorCode.NameRequired)))
     else if r.email.exists(e => !Address.valid(Address.toAscii(e.trim))) then
       IO.pure(Left(AppError(ErrorCode.IdpEmailInvalid)))
@@ -168,9 +150,7 @@ final class AdminService(
     }
 
   /** エージェント専用アカウントを作る（ログインできない。address を指定すると送信できる主アドレスも作る）。 */
-  def createAgent(
-    r: CreateAgentReq
-  ): Res[UUID] =
+  def createAgent(r: CreateAgentReq): Res[UUID] =
     AgentAccounts.validName(r.name) match {
       case Left(e) => IO.pure(Left(AppError(ErrorCode.AgentNameInvalid, e)))
       case Right(n) =>
@@ -178,21 +158,12 @@ final class AdminService(
     }
 
   /** ユーザーを作り、主アドレス（あれば）と既定のメールボックスを同じトランザクションで作る。 */
-  private def withMailbox(
-    address: Option[String]
-  )(
-    create: doobie.ConnectionIO[UUID]
-  ): Res[UUID] = {
-    def run(
-      addr: Option[(String, UUID)]
-    ): Res[UUID] =
+  private def withMailbox(address: Option[String])(create: doobie.ConnectionIO[UUID]): Res[UUID] = {
+    def run(addr: Option[(String, UUID)]): Res[UUID] =
       (for {
         uid <- create
         _ <- addr.fold(doobie.free.connection.unit) {
-          (
-            a,
-            did
-          ) =>
+          (a, did) =>
             domains.createAddress(a, did, Some(uid), Nil, true, true)
               .flatMap(_.fold(
                 e => doobie.free.connection.raiseError(new IllegalStateException(e.message)),
@@ -231,14 +202,10 @@ final class AdminService(
       )
     )
 
-  def agent(
-    id: UUID
-  ): IO[Option[AgentDto]] = agents.map(_.find(_.id == id))
+  def agent(id: UUID): IO[Option[AgentDto]] = agents.map(_.find(_.id == id))
 
   /** IdP でログインした人のアドレスを自動で作る（ドメインが auto_provision のとき）。 */
-  def autoProvision(
-    u: User
-  ): IO[Unit] =
+  def autoProvision(u: User): IO[Unit] =
     u.email.map(e => Address.toAscii(e).toLowerCase).filter(Address.valid) match {
       case None => IO.unit
       case Some(e) =>
@@ -256,9 +223,7 @@ final class AdminService(
         } *> mail.ensureDefaults(u.id)
     }
 
-  def adminUsers(
-    q: Option[String]
-  ): IO[List[AdminUserDto]] =
+  def adminUsers(q: Option[String]): IO[List[AdminUserDto]] =
     for {
       us <- users.list(q, 500)
       addrs <- domains.addresses(None, None)
@@ -278,9 +243,7 @@ final class AdminService(
       )
     }
 
-  def createAddress(
-    r: AddressReq
-  ): Res[UUID] = {
+  def createAddress(r: AddressReq): Res[UUID] = {
     val addr = Address.toAscii(r.address.trim).toLowerCase
     val fwd = r.forwardTo.map(f => Address.toAscii(f.trim).toLowerCase).filter(_.nonEmpty).distinct
     if !Address.valid(addr) then IO.pure(Left(AppError(ErrorCode.AddressInvalid)))

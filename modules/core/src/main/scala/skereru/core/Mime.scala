@@ -5,51 +5,38 @@ import java.util.Base64
 import scala.collection.mutable.ArrayBuffer
 
 /** ヘッダーの1行（折り返しは戻した値。raw はバイトを ISO-8859-1 で読んだ文字列なので、元のバイト列に戻せる）。 */
-final case class HeaderField(
-  name: String,
-  raw: String) {
+final case class HeaderField(name: String, raw: String) {
 
   /** RFC 2047 の符号化語を戻し、UTF-8 の生のヘッダー（SMTPUTF8）も読めるようにした値。 */
   def decoded: String = Mime.decodeHeader(raw)
 }
 
 /** Content-Type などの値とパラメーター（RFC 2231 の分割・符号化は戻してある）。 */
-final case class ParamValue(
-  value: String,
-  params: Map[String, String]) {
-  def param(
-    name: String
-  ): Option[String] = params.get(name.toLowerCase)
+final case class ParamValue(value: String, params: Map[String, String]) {
+  def param(name: String): Option[String] = params.get(name.toLowerCase)
 }
 
 /**
  * MIME の部品。位置はすべて元のメッセージのバイト列の中のオフセット。
  * start〜bodyStart がヘッダー（区切りの空行を含む）、bodyStart〜end が本文。
  */
-final case class MimePart(
-  start: Int,
-  bodyStart: Int,
-  end: Int,
-  headers: List[HeaderField],
-  contentType: ParamValue,
-  children: List[MimePart],
-  message: Option[MimePart],
-  bodyLines: Int) {
+final case class MimePart(start: Int,
+                          bodyStart: Int,
+                          end: Int,
+                          headers: List[HeaderField],
+                          contentType: ParamValue,
+                          children: List[MimePart],
+                          message: Option[MimePart],
+                          bodyLines: Int) {
   def mainType: String = contentType.value.takeWhile(_ != '/').toLowerCase
   def subType: String = contentType.value.dropWhile(_ != '/').drop(1).toLowerCase
   def mimeType: String = s"$mainType/$subType"
   def isMultipart: Boolean = mainType == "multipart"
   def isMessage: Boolean = mimeType == "message/rfc822"
 
-  def header(
-    name: String
-  ): Option[String] = headers.find(_.name.equalsIgnoreCase(name)).map(_.raw)
-  def headerDecoded(
-    name: String
-  ): Option[String] = headers.find(_.name.equalsIgnoreCase(name)).map(_.decoded)
-  def headerAll(
-    name: String
-  ): List[String] = headers.filter(_.name.equalsIgnoreCase(name)).map(_.raw)
+  def header(name: String): Option[String] = headers.find(_.name.equalsIgnoreCase(name)).map(_.raw)
+  def headerDecoded(name: String): Option[String] = headers.find(_.name.equalsIgnoreCase(name)).map(_.decoded)
+  def headerAll(name: String): List[String] = headers.filter(_.name.equalsIgnoreCase(name)).map(_.raw)
 
   def encoding: String =
     header("Content-Transfer-Encoding").map(_.trim.toLowerCase).filter(_.nonEmpty).getOrElse("7bit")
@@ -71,9 +58,7 @@ final case class MimePart(
           mimeType != "message/delivery-status"))
 
   /** IMAP の部品番号で子をたどる（1 始まり。単一部品のメッセージでは 1 が本文）。 */
-  def part(
-    path: List[Int]
-  ): Option[MimePart] = path match {
+  def part(path: List[Int]): Option[MimePart] = path match {
     case Nil => Some(this)
     case n :: rest =>
       val next =
@@ -87,16 +72,9 @@ final case class MimePart(
   }
 
   /** 葉の部品をすべて（部品番号つき）。 */
-  def leaves(
-    prefix: List[Int] = Nil
-  ): List[(List[Int], MimePart)] =
+  def leaves(prefix: List[Int] = Nil): List[(List[Int], MimePart)] =
     if isMultipart then
-      children.zipWithIndex.flatMap(
-        (
-          c,
-          i
-        ) => c.leaves(prefix :+ (i + 1))
-      )
+      children.zipWithIndex.flatMap((c, i) => c.leaves(prefix :+ (i + 1)))
     else List((if prefix.isEmpty then List(1) else prefix) -> this)
 }
 
@@ -104,32 +82,25 @@ object Mime {
 
   private val Latin1 = StandardCharsets.ISO_8859_1
 
-  def latin1(
-    bytes: Array[Byte],
-    from: Int,
-    until: Int
-  ): String = new String(bytes, from, math.max(0, until - from), Latin1)
+  def latin1(bytes: Array[Byte], from: Int, until: Int): String =
+    new String(bytes, from, math.max(0, until - from), Latin1)
 
   /** メッセージ全体を解析する。壊れた入力でも例外を出さず、読めたところまでの構造を返す。 */
-  def parse(
-    bytes: Array[Byte]
-  ): MimePart = parsePart(bytes, 0, bytes.length, defaultType = "text/plain", depth = 0, new Budget(MaxParts))
+  def parse(bytes: Array[Byte]): MimePart =
+    parsePart(bytes, 0, bytes.length, defaultType = "text/plain", depth = 0, new Budget(MaxParts))
 
   private val MaxDepth = 20
 
   /** 1通の部品の数の上限（区切り行だけを大量に並べて、部品のオブジェクトでメモリを使い切らせない）。超えた分は分けずに1つの部品として扱う。 */
   val MaxParts = 1000
-  private final class Budget(
-    var left: Int)
+  private final class Budget(var left: Int)
 
-  private def parsePart(
-    b: Array[Byte],
-    start: Int,
-    end: Int,
-    defaultType: String,
-    depth: Int,
-    budget: Budget
-  ): MimePart = {
+  private def parsePart(b: Array[Byte],
+                        start: Int,
+                        end: Int,
+                        defaultType: String,
+                        depth: Int,
+                        budget: Budget): MimePart = {
     budget.left -= 1
     val bodyStart = headerEnd(b, start, end)
     val headers = parseHeaders(latin1(b, start, bodyStart))
@@ -142,11 +113,8 @@ object Mime {
     val lines = countLines(b, bodyStart, end)
     if depth < MaxDepth && budget.left > 0 && main == "multipart" && ct.param("boundary").exists(_.nonEmpty) then {
       val childDefault = if ct.value.equalsIgnoreCase("multipart/digest") then "message/rfc822" else "text/plain"
-      val kids = splitMultipart(b, bodyStart, end, ct.param("boundary").get, budget.left).map(
-        (
-          s,
-          e
-        ) => parsePart(b, s, e, childDefault, depth + 1, budget)
+      val kids = splitMultipart(b, bodyStart, end, ct.param("boundary").get, budget.left).map((s, e) =>
+        parsePart(b, s, e, childDefault, depth + 1, budget)
       )
       MimePart(start, bodyStart, end, headers, ct, kids, None, lines)
     } else if depth < MaxDepth && budget.left > 0 && ct.value.equalsIgnoreCase("message/rfc822") then
@@ -164,11 +132,7 @@ object Mime {
   }
 
   /** ヘッダーの終わり（空行の直後）。空行がなければ全体がヘッダー。先頭が空行ならヘッダーなし。 */
-  def headerEnd(
-    b: Array[Byte],
-    start: Int,
-    end: Int
-  ): Int = {
+  def headerEnd(b: Array[Byte], start: Int, end: Int): Int = {
     if start < end && b(start) == '\n' then return start + 1
     if start + 1 < end && b(start) == '\r' && b(start + 1) == '\n' then return start + 2
     var i = start
@@ -182,11 +146,7 @@ object Mime {
     end
   }
 
-  private def countLines(
-    b: Array[Byte],
-    from: Int,
-    until: Int
-  ): Int = {
+  private def countLines(b: Array[Byte], from: Int, until: Int): Int = {
     var n = 0
     var i = from
     while i < until do {
@@ -197,9 +157,7 @@ object Mime {
   }
 
   /** ヘッダー部を解析する（折り返しを戻す）。 */
-  def parseHeaders(
-    text: String
-  ): List[HeaderField] = {
+  def parseHeaders(text: String): List[HeaderField] = {
     val out = ArrayBuffer.empty[HeaderField]
     var name: String = null
     val value = new StringBuilder
@@ -221,17 +179,13 @@ object Mime {
   }
 
   /** multipart の各部品の範囲（区切り行の次の行頭〜次の区切りの直前の改行の前）。 */
-  def splitMultipart(
-    b: Array[Byte],
-    from: Int,
-    until: Int,
-    boundary: String,
-    maxParts: Int = Int.MaxValue
-  ): List[(Int, Int)] = {
+  def splitMultipart(b: Array[Byte],
+                     from: Int,
+                     until: Int,
+                     boundary: String,
+                     maxParts: Int = Int.MaxValue): List[(Int, Int)] = {
     val delim = ("--" + boundary).getBytes(Latin1)
-    def isDelim(
-      i: Int
-    ): Boolean =
+    def isDelim(i: Int): Boolean =
       i + delim.length <= until && (0 until delim.length).forall(k => b(i + k) == delim(k))
     val starts = ArrayBuffer.empty[(Int, Int, Boolean)] // (区切り行の開始, 区切り行の次の行頭, 終端か)
     var i = from
@@ -268,9 +222,7 @@ object Mime {
   // ---------------------------------------------------------------- パラメーター（Content-Type・Content-Disposition）
 
   /** `text/plain; charset="utf-8"; name*=UTF-8''%E3%81%82` を値とパラメーターにする。 */
-  def parseParams(
-    raw: String
-  ): ParamValue = {
+  def parseParams(raw: String): ParamValue = {
     val parts = splitParams(raw)
     val value = parts.headOption.map(_.trim).getOrElse("")
     val kv = parts.drop(1).flatMap { p =>
@@ -278,24 +230,13 @@ object Mime {
       Option.when(i > 0)(p.substring(0, i).trim.toLowerCase -> unquote(p.substring(i + 1).trim))
     }
     // RFC 2231: name*0*=…, name*1*=… を連結し、name*=charset'lang'%XX を戻す
-    val grouped = kv.groupBy(
-      (
-        k,
-        _
-      ) => k.takeWhile(_ != '*')
-    )
+    val grouped = kv.groupBy((k, _) => k.takeWhile(_ != '*'))
     val params = grouped.map {
-      (
-        name,
-        entries
-      ) =>
+      (name, entries) =>
         {
           val plain = entries.find(_._1 == name).map(_._2)
           val ext = entries.filter(_._1 != name).sortBy {
-            (
-              k,
-              _
-            ) => k.drop(name.length + 1).takeWhile(_.isDigit).toIntOption.getOrElse(0)
+            (k, _) => k.drop(name.length + 1).takeWhile(_.isDigit).toIntOption.getOrElse(0)
           }
           val v =
             if ext.isEmpty then plain.getOrElse("")
@@ -308,10 +249,7 @@ object Mime {
     ParamValue(value, params)
   }
 
-  private def decode2231(
-    encodedFlags: List[Boolean],
-    values: List[String]
-  ): String = {
+  private def decode2231(encodedFlags: List[Boolean], values: List[String]): String = {
     val first = values.head
     val q1 = first.indexOf('\'')
     val q2 = if q1 >= 0 then first.indexOf('\'', q1 + 1) else -1
@@ -320,10 +258,7 @@ object Mime {
     val cs = charsetFor(charset)
     val bytes = new java.io.ByteArrayOutputStream()
     (firstValue :: values.tail).zip(encodedFlags).foreach {
-      (
-        v,
-        enc
-      ) =>
+      (v, enc) =>
         if enc then {
           var i = 0
           while i < v.length do
@@ -337,13 +272,9 @@ object Mime {
     new String(bytes.toByteArray, cs)
   }
 
-  private def isHex(
-    c: Char
-  ) = Character.digit(c, 16) >= 0
+  private def isHex(c: Char) = Character.digit(c, 16) >= 0
 
-  private def splitParams(
-    s: String
-  ): List[String] = {
+  private def splitParams(s: String): List[String] = {
     val out = ArrayBuffer.empty[String]
     val cur = new StringBuilder
     var inQ = false
@@ -372,18 +303,14 @@ object Mime {
     }
   }
 
-  def unquote(
-    s: String
-  ): String =
+  def unquote(s: String): String =
     if s.length >= 2 && s.head == '"' && s.last == '"' then s.substring(1, s.length - 1).replaceAll("\\\\(.)", "$1")
     else s
 
   // ---------------------------------------------------------------- 文字コード・転送符号化
 
   /** 文字コード名を Java の Charset にする（よくある別名・誤記を吸収し、未知なら UTF-8）。 */
-  def charsetFor(
-    name: String
-  ): Charset = {
+  def charsetFor(name: String): Charset = {
     val n = name.trim.toLowerCase.stripPrefix("\"").stripSuffix("\"")
     val mapped = n match {
       case "" | "us-ascii" | "ascii" | "ansi_x3.4-1968" => "UTF-8" // 7bit の誤ラベルが多いので UTF-8 で読む（ASCII は同じ）
@@ -400,10 +327,7 @@ object Mime {
   }
 
   /** 転送符号化（base64・quoted-printable）を戻したバイト列。 */
-  def decodeTransfer(
-    encoding: String,
-    raw: Array[Byte]
-  ): Array[Byte] = encoding.toLowerCase match {
+  def decodeTransfer(encoding: String, raw: Array[Byte]): Array[Byte] = encoding.toLowerCase match {
     case "base64" =>
       val clean = raw.filter(c =>
         (c >= 'A' && c <= 'Z') ||
@@ -418,10 +342,7 @@ object Mime {
     case _ => raw
   }
 
-  def decodeQp(
-    raw: Array[Byte],
-    header: Boolean
-  ): Array[Byte] = {
+  def decodeQp(raw: Array[Byte], header: Boolean): Array[Byte] = {
     val out = new java.io.ByteArrayOutputStream(raw.length)
     var i = 0
     while i < raw.length do {
@@ -439,10 +360,7 @@ object Mime {
   }
 
   /** 部品の本文を文字列として読む（転送符号化と文字コードを戻す）。 */
-  def text(
-    msg: Array[Byte],
-    p: MimePart
-  ): String = {
+  def text(msg: Array[Byte], p: MimePart): String = {
     val raw = java.util.Arrays.copyOfRange(msg, p.bodyStart, p.end)
     val bytes = decodeTransfer(p.encoding, raw)
     val cs = p.contentType.param("charset").map(charsetFor).getOrElse(guessCharset(bytes))
@@ -450,16 +368,11 @@ object Mime {
   }
 
   /** 部品の中身（転送符号化を戻したバイト列。添付ファイルのダウンロード用）。 */
-  def content(
-    msg: Array[Byte],
-    p: MimePart
-  ): Array[Byte] =
+  def content(msg: Array[Byte], p: MimePart): Array[Byte] =
     decodeTransfer(p.encoding, java.util.Arrays.copyOfRange(msg, p.bodyStart, p.end))
 
   /** 文字コードの指定がないときの推測（UTF-8 として正しければ UTF-8、ESC $ B があれば ISO-2022-JP）。 */
-  def guessCharset(
-    bytes: Array[Byte]
-  ): Charset =
+  def guessCharset(bytes: Array[Byte]): Charset =
     if bytes.containsSlice(Array[Byte](0x1b, '$', 'B')) then charsetFor("iso-2022-jp")
     else {
       val dec = StandardCharsets.UTF_8.newDecoder()
@@ -472,9 +385,7 @@ object Mime {
   private val Encoded = """=\?([^?\s]+)\?([bBqQ])\?([^?\s]*)\?=""".r
 
   /** 符号化語（=?UTF-8?B?…?=）を戻す。ISO-8859-1 で読んだ生の 8bit（UTF-8 など）も文字に戻す。 */
-  def decodeHeader(
-    raw: String
-  ): String = {
+  def decodeHeader(raw: String): String = {
     // ISO-8859-1 で読んだ生のバイト列（0xff 以下の文字だけ）なら、文字コードを推測して読み直す
     val s = if raw.exists(_ > 0x7f) && raw.forall(_ <= 0xff) then {
       val bytes = raw.getBytes(Latin1)
@@ -513,9 +424,7 @@ object Mime {
   }
 
   /** ヘッダーの値を RFC 2047 で符号化する（ASCII だけならそのまま）。 */
-  def encodeHeader(
-    s: String
-  ): String =
+  def encodeHeader(s: String): String =
     if s.forall(c => c >= 0x20 && c < 0x7f) then s
     else {
       // 75 文字以内の符号化語に分ける（文字の途中で切らない）

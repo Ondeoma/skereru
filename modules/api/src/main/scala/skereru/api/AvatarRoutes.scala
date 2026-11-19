@@ -10,9 +10,7 @@ import skereru.db.AvatarStore
 import skereru.shared.AvatarImage
 
 /** 自分のアイコンの保存・削除と、アイコンの画像. 保存しなければ IdP（sruru など）の画像を使う. */
-final class AvatarRoutes(
-  avatars: AvatarStore,
-  val sessions: SessionAuth) extends RouteSupport {
+final class AvatarRoutes(avatars: AvatarStore, val sessions: SessionAuth) extends RouteSupport {
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     // 画像そのもの（PNG・JPEG・GIF・WebP、1MB まで）を本文にして送る. 種類は先頭のバイトで確かめる
@@ -21,9 +19,7 @@ final class AvatarRoutes(
     case req @ GET -> Root / "api" / "users" / UuidVar(id) / "avatar" => getUserAvatar(req, id)
   }
 
-  private def putMeAvatar(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def putMeAvatar(req: Request[IO]): IO[Response[IO]] =
     authed(req) { s =>
       req.body.take(AvatarImage.MaxBytes + 1L).compile.to(Array).flatMap { data =>
         if data.length > AvatarImage.MaxBytes then err(ErrorCode.AvatarTooLarge)
@@ -34,15 +30,10 @@ final class AvatarRoutes(
       }
     }
 
-  private def deleteMeAvatar(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def deleteMeAvatar(req: Request[IO]): IO[Response[IO]] =
     authed(req)(s => avatars.delete(s.user.id) *> NoContent())
 
-  private def getUserAvatar(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def getUserAvatar(req: Request[IO], id: UUID): IO[Response[IO]] =
     authed(req) { _ =>
       avatars.find(id).flatMap {
         case None => err(ErrorCode.AvatarNotFound)

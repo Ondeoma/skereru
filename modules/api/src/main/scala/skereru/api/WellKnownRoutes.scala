@@ -12,10 +12,7 @@ import skereru.db.*
 import skereru.mail.MailConfig
 
 /** MTA-STS のポリシーと、メールソフトの自動設定（Thunderbird の autoconfig）。 */
-final class WellKnownRoutes(
-  domains: DomainStore,
-  mcfg: MailConfig,
-  stsMode: String) {
+final class WellKnownRoutes(domains: DomainStore, mcfg: MailConfig, stsMode: String) {
   import org.http4s.dsl.io.*
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
@@ -26,9 +23,7 @@ final class WellKnownRoutes(
       getMailAutoconfig(req)
   }
 
-  private def getWellKnownMtaStsTxt(
-    req: Request[IO]
-  ): IO[Response[IO]] = {
+  private def getWellKnownMtaStsTxt(req: Request[IO]): IO[Response[IO]] = {
     val h = host(req)
     if !h.startsWith("mta-sts.") then Errors.respond(ErrorCode.MailConfigNotFound)
     else
@@ -41,9 +36,7 @@ final class WellKnownRoutes(
       }
   }
 
-  private def getMailAutoconfig(
-    req: Request[IO]
-  ): IO[Response[IO]] = {
+  private def getMailAutoconfig(req: Request[IO]): IO[Response[IO]] = {
     val d = req.params.get("emailaddress").map(skereru.core.Address.domainOf).filter(_.nonEmpty).getOrElse(host(
       req
     ).stripPrefix("autoconfig."))
@@ -53,17 +46,13 @@ final class WellKnownRoutes(
     }
   }
 
-  private def host(
-    req: Request[IO]
-  ): String = req.headers.get[org.http4s.headers.Host].map(_.host.toLowerCase).getOrElse("")
+  private def host(req: Request[IO]): String =
+    req.headers.get[org.http4s.headers.Host].map(_.host.toLowerCase).getOrElse("")
 
-  private def xmlEscape(
-    s: String
-  ) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
+  private def xmlEscape(s: String) =
+    s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 
-  private def autoconfig(
-    domain: String
-  ): String = {
+  private def autoconfig(domain: String): String = {
     val h = xmlEscape(mcfg.hostname)
     val d = xmlEscape(domain)
     val incoming = List(

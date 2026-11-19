@@ -6,12 +6,7 @@ import java.net.InetAddress
 import java.time.ZoneId
 
 /** 外への送信を中継するサーバー（ポート25が使えない環境向け）。tls: starttls | ssl | none */
-final case class RelayConfig(
-  host: String,
-  port: Int,
-  tls: String,
-  user: Option[String],
-  password: Option[String])
+final case class RelayConfig(host: String, port: Int, tls: String, user: Option[String], password: Option[String])
 
 /** メールのプロトコルと配送の設定。ポートが None ならその待ち受けをしない。 */
 final case class MailConfig(

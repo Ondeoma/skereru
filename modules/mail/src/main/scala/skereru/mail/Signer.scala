@@ -8,14 +8,9 @@ import java.nio.charset.StandardCharsets
 import java.time.Instant
 
 /** DKIM の署名（From のドメインの鍵で）。 */
-final class Signer(
-  domains: DomainStore,
-  box: skereru.auth.SecretBox,
-  dns: Option[Dns] = None) {
+final class Signer(domains: DomainStore, box: skereru.auth.SecretBox, dns: Option[Dns] = None) {
 
-  private def key(
-    domain: String
-  ): IO[Option[(Domain, java.security.PrivateKey)]] =
+  private def key(domain: String): IO[Option[(Domain, java.security.PrivateKey)]] =
     domains.domainByName(domain).map(_.flatMap { dom =>
       box.decrypt(dom.dkimPrivate).flatMap(k =>
         scala.util.Try(Dkim.privateKey(java.util.Base64.getDecoder.decode(k))).toOption
@@ -27,12 +22,7 @@ final class Signer(
    * 転送すると SPF・DKIM が通らなくなりやすく、DMARC で拒否されるのを防ぐ）。domain は転送するアドレスのドメイン。
    * authHeader は受信時に付けた Authentication-Results のヘッダー全体。
    */
-  def arcSeal(
-    raw: Array[Byte],
-    domain: String,
-    authHeader: Option[String],
-    hostname: String
-  ): IO[Array[Byte]] =
+  def arcSeal(raw: Array[Byte], domain: String, authHeader: Option[String], hostname: String): IO[Array[Byte]] =
     key(domain).flatMap {
       case None => IO.pure(raw)
       case Some((dom, pk)) =>
@@ -47,9 +37,7 @@ final class Signer(
         }
     }
 
-  def sign(
-    raw: Array[Byte]
-  ): IO[Array[Byte]] = {
+  def sign(raw: Array[Byte]): IO[Array[Byte]] = {
     val root = Mime.parse(raw)
     root.header("From").flatMap(Address.parseOne).map(_.domain) match {
       case None => IO.pure(raw)

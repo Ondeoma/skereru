@@ -5,9 +5,7 @@ import skereru.db.*
 import scala.collection.mutable.ArrayBuffer
 
 /** 選択中のメールボックスの状態（セッションから見えている UID の並びとフラグ）。 */
-final class Selected(
-  val box: Mailbox,
-  val readOnly: Boolean) {
+final class Selected(val box: Mailbox, val readOnly: Boolean) {
   val uids = ArrayBuffer.empty[Long]
   val flags = scala.collection.mutable.HashMap.empty[Long, List[String]]
   var modseq: Long = box.highestModseq
@@ -15,9 +13,7 @@ final class Selected(
   def maxUid: Long = uids.lastOption.getOrElse(0L)
 
   /** UID の連番（1 始まり）。UID は昇順なので二分探索する。 */
-  def seqOf(
-    uid: Long
-  ): Int = {
+  def seqOf(uid: Long): Int = {
     var lo = 0
     var hi = uids.size - 1
     var found = -1

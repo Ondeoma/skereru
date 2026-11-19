@@ -5,14 +5,10 @@ import java.net.Socket
 import java.nio.charset.StandardCharsets
 
 /** ClamAV（clamd の INSTREAM）。 */
-final class ClamAv(
-  host: String,
-  port: Int) {
+final class ClamAv(host: String, port: Int) {
 
   /** ウイルスの名前（見つからなければ None）。つながらなければ例外。 */
-  def scan(
-    data: Array[Byte]
-  ): Option[String] = {
+  def scan(data: Array[Byte]): Option[String] = {
     val s = new Socket(host, port)
     try {
       s.setSoTimeout(60_000)

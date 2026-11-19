@@ -31,19 +31,18 @@ class MailSpec extends CatsEffectSuite {
     finally s.close()
   }
 
-  final case class Env(
-    cfg: MailConfig,
-    users: UserStore,
-    domains: DomainStore,
-    mail: MailStore,
-    queue: QueueStore,
-    domain: String,
-    alice: (UUID, String, String),
-    bob: (UUID, String, String),
-    carol: (UUID, String, String),
-    imports: ImportStore,
-    importer: Importer,
-    dmarc: DmarcStore)
+  final case class Env(cfg: MailConfig,
+                       users: UserStore,
+                       domains: DomainStore,
+                       mail: MailStore,
+                       queue: QueueStore,
+                       domain: String,
+                       alice: (UUID, String, String),
+                       bob: (UUID, String, String),
+                       carol: (UUID, String, String),
+                       imports: ImportStore,
+                       importer: Importer,
+                       dmarc: DmarcStore)
 
   private val secret = "test-app-secret-0123456789"
 
@@ -110,10 +109,7 @@ class MailSpec extends CatsEffectSuite {
         ))
         _ <- Resource.eval(delivery.refreshDomains)
         dmarc = new DmarcStore(xa)
-        _ = delivery.onDmarcReport = (
-          raw,
-          authed
-        ) =>
+        _ = delivery.onDmarcReport = (raw, authed) =>
           DmarcReport.fromMessage(raw).fold(e => IO(log(s"dmarc: $e")), a => dmarc.save(a, authed))
         _ <- MailServers.start(MailServers.Deps(cfg, tls, delivery, new MailAuth(users), mail, blobs, queue, dns, log))
       } yield Env(cfg, users, domains, mail, queue, dname, alice, bob, carol, imports, importer, dmarc)
@@ -122,16 +118,10 @@ class MailSpec extends CatsEffectSuite {
 
   override def munitFixtures = if dbCfg.isDefined then List(envFixture) else Nil
 
-  private def withEnv(
-    name: String
-  )(
-    body: Env => IO[Unit]
-  ): Unit =
+  private def withEnv(name: String)(body: Env => IO[Unit]): Unit =
     test(name)(if dbCfg.isEmpty then IO(assume(false, "TEST_DATABASE_URL が未設定")) else body(envFixture()))
 
-  private def props(
-    e: Env
-  ): Properties = {
+  private def props(e: Env): Properties = {
     val p = new Properties()
     p.put("mail.smtps.host", "127.0.0.1"); p.put("mail.smtps.port", e.cfg.smtpsPort.get.toString);
     p.put("mail.smtps.auth", "true")
@@ -146,15 +136,13 @@ class MailSpec extends CatsEffectSuite {
     p
   }
 
-  private def send(
-    e: Env,
-    protocol: String,
-    from: (UUID, String, String),
-    to: List[String],
-    subject: String,
-    body: String,
-    fromHeader: Option[String] = None
-  ): IO[Unit] =
+  private def send(e: Env,
+                   protocol: String,
+                   from: (UUID, String, String),
+                   to: List[String],
+                   subject: String,
+                   body: String,
+                   fromHeader: Option[String] = None): IO[Unit] =
     IO.blocking {
       val s = Session.getInstance(props(e))
       val m = new MimeMessage(s)
@@ -168,12 +156,7 @@ class MailSpec extends CatsEffectSuite {
       finally t.close()
     }
 
-  private def imap[A](
-    e: Env,
-    who: (UUID, String, String)
-  )(
-    f: Store => A
-  ): IO[A] = IO.blocking {
+  private def imap[A](e: Env, who: (UUID, String, String))(f: Store => A): IO[A] = IO.blocking {
     val st = Session.getInstance(props(e)).getStore("imaps")
     st.connect("127.0.0.1", who._2, who._3)
     try f(st)
@@ -228,10 +211,7 @@ class MailSpec extends CatsEffectSuite {
   }
 
   /** 生の SMTP の会話。 */
-  private def smtpTalk(
-    e: Env,
-    lines: List[String]
-  ): IO[List[String]] = IO.blocking {
+  private def smtpTalk(e: Env, lines: List[String]): IO[List[String]] = IO.blocking {
     val s = new Socket("127.0.0.1", e.cfg.smtpPort.get)
     s.setSoTimeout(30_000)
     val in = new java.io.BufferedReader(new java.io.InputStreamReader(s.getInputStream, StandardCharsets.UTF_8))
@@ -345,23 +325,13 @@ class MailSpec extends CatsEffectSuite {
   }
 
   /** IMAPS に生のコマンドを送る（証明書は確かめない）。send は1行を送り、tag で始まる応答の行を返す。 */
-  private def rawImaps[A](
-    e: Env
-  )(
-    f: (String => Unit, String => String) => A
-  ): A = {
+  private def rawImaps[A](e: Env)(f: (String => Unit, String => String) => A): A = {
     val ctx = javax.net.ssl.SSLContext.getInstance("TLS")
     ctx.init(
       null,
       Array[javax.net.ssl.TrustManager](new javax.net.ssl.X509TrustManager {
-        def checkClientTrusted(
-          c: Array[java.security.cert.X509Certificate],
-          a: String
-        ) = ()
-        def checkServerTrusted(
-          c: Array[java.security.cert.X509Certificate],
-          a: String
-        ) = ()
+        def checkClientTrusted(c: Array[java.security.cert.X509Certificate], a: String) = ()
+        def checkServerTrusted(c: Array[java.security.cert.X509Certificate], a: String) = ()
         def getAcceptedIssuers = Array.empty[java.security.cert.X509Certificate]
       }),
       null
@@ -369,12 +339,10 @@ class MailSpec extends CatsEffectSuite {
     val s = ctx.getSocketFactory.createSocket("127.0.0.1", e.cfg.imapsPort.get)
     s.setSoTimeout(10_000)
     val in = new java.io.BufferedReader(new java.io.InputStreamReader(s.getInputStream, StandardCharsets.UTF_8))
-    def send(
-      l: String
-    ): Unit = { s.getOutputStream.write((l + "\r\n").getBytes(StandardCharsets.UTF_8)); s.getOutputStream.flush() }
-    def until(
-      tag: String
-    ): String =
+    def send(l: String): Unit = {
+      s.getOutputStream.write((l + "\r\n").getBytes(StandardCharsets.UTF_8)); s.getOutputStream.flush()
+    }
+    def until(tag: String): String =
       Iterator.continually(in.readLine()).find(l => l == null || l.startsWith(tag) || l.startsWith("* BYE")).orNull
     try { in.readLine(); f(send, until) }
     finally s.close()
@@ -382,10 +350,7 @@ class MailSpec extends CatsEffectSuite {
 
   withEnv("セキュリティ: ログインの前に大きなリテラルを宣言しても受け付けない") { e =>
     IO.blocking(rawImaps(e) {
-      (
-        send,
-        until
-      ) =>
+      (send, until) =>
         {
           send("a1 LOGIN {52428800+}")
           val r = until("a1")
@@ -396,20 +361,14 @@ class MailSpec extends CatsEffectSuite {
 
   withEnv("セキュリティ: 桁あふれするリテラルの長さ・* を並べた LIST で止まらない") { e =>
     IO.blocking(rawImaps(e) {
-      (
-        send,
-        until
-      ) =>
+      (send, until) =>
         {
           send("a0 LOGIN {9223372036854775807+}")
           val r0 = until("a0")
           assert(r0 != null && (r0.contains("BAD") || r0.contains("BYE")), r0)
         }
     }) *> IO.blocking(rawImaps(e) {
-      (
-        send,
-        until
-      ) =>
+      (send, until) =>
         {
           send(s"""a1 LOGIN "${e.alice._2}" "${e.alice._3}"""")
           val r1 = until("a1"); assert(r1 != null && r1.startsWith("a1 OK"), r1)
@@ -422,11 +381,7 @@ class MailSpec extends CatsEffectSuite {
   }
 
   /** user のメールボックス name（特別なものは special_use）の件数。 */
-  private def count(
-    e: Env,
-    user: UUID,
-    box: IO[Option[Mailbox]]
-  ): IO[Int] =
+  private def count(e: Env, user: UUID, box: IO[Option[Mailbox]]): IO[Int] =
     box.flatMap(b => e.mail.list(user, b.map(_.id), MailQuery.parse(""), false, 0, 500, e.cfg.zone)).map(_._2)
 
   withEnv("取り込み: IMAP で、ほかのサーバーのメールを取り込む（2回目は重複として飛ばす）") { e =>
@@ -507,9 +462,7 @@ class MailSpec extends CatsEffectSuite {
         s.setSoTimeout(10_000)
         val in = new java.io.BufferedReader(new java.io.InputStreamReader(s.getInputStream, StandardCharsets.UTF_8))
         val out = s.getOutputStream
-        def cmd(
-          l: String
-        ): String = {
+        def cmd(l: String): String = {
           out.write((l + "\r\n").getBytes(StandardCharsets.UTF_8)); out.flush();
           Iterator.continually(in.readLine()).find(x => x == null || x.length < 4 || x(3) == ' ').orNull
         }

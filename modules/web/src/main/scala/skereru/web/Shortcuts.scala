@@ -32,25 +32,19 @@ object Shortcuts {
   private var pendingG = false
 
   /** 画面のショートカットを登録する（同じキーは後から登録したものが勝つ）. 外すための関数を返す. */
-  def register(
-    keys: (String, () => Unit)*
-  ): () => Unit = {
+  def register(keys: (String, () => Unit)*): () => Unit = {
     handlers = handlers ++ keys
     () => handlers = handlers -- keys.map(_._1)
   }
 
-  private def typing(
-    e: dom.KeyboardEvent
-  ): Boolean = e.target match {
+  private def typing(e: dom.KeyboardEvent): Boolean = e.target match {
     case el: dom.HTMLElement =>
       val tag = el.tagName.toLowerCase
       tag == "input" || tag == "textarea" || tag == "select" || el.isContentEditable
     case _ => false
   }
 
-  private def go(
-    path: String
-  ): Unit = Router.go(path)
+  private def go(path: String): Unit = Router.go(path)
 
   def install(): Unit = dom.document.addEventListener(
     "keydown",

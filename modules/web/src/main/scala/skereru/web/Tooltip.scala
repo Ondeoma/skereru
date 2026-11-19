@@ -24,16 +24,12 @@ object Tooltip {
     t
   }
 
-  private def target(
-    node: dom.EventTarget
-  ): Option[dom.Element] = node match {
+  private def target(node: dom.EventTarget): Option[dom.Element] = node match {
     case e: dom.Element => Option(e.closest("[title], [data-tip]"))
     case _ => None
   }
 
-  private def show(
-    t: dom.Element
-  ): Unit = {
+  private def show(t: dom.Element): Unit = {
     val text = Option(t.getAttribute("data-tip")).getOrElse("")
     if (text.nonEmpty) {
       val box = el()
@@ -50,9 +46,7 @@ object Tooltip {
     }
   }
 
-  private def enter(
-    t: dom.Element
-  ): Unit = if (!current.contains(t)) {
+  private def enter(t: dom.Element): Unit = if (!current.contains(t)) {
     leave()
     current = Some(t)
     // 標準のツールチップを止める（data-tip に移す）

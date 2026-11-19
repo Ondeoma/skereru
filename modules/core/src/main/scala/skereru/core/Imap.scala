@@ -3,14 +3,10 @@ package skereru.core
 import java.time.LocalDate
 
 /** IMAP の構文エラー（BAD で返す）。 */
-final class ImapSyntax(
-  msg: String) extends Exception(msg)
+final class ImapSyntax(msg: String) extends Exception(msg)
 
 /** BODY[…] の部品の指定。 */
-final case class Section(
-  path: List[Int],
-  kind: String,
-  fields: List[String]) {
+final case class Section(path: List[Int], kind: String, fields: List[String]) {
   def render: String = {
     val p = path.mkString(".")
     val k = kind match {
@@ -41,7 +37,8 @@ enum SearchKey {
   case All
   case Flag(
     flag: String,
-    set: Boolean) // \Seen なら set=true、UNSEEN なら false
+    set: Boolean
+  ) // \Seen なら set=true、UNSEEN なら false
   case Keyword(
     k: String,
     set: Boolean)

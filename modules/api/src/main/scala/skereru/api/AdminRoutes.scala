@@ -17,15 +17,14 @@ import skereru.mail.Delivery
 import skereru.shared.*
 
 /** 管理（ドメイン・DNS・ユーザー・アドレス・送信待ち・監査ログ・統計）。すべて監査ログに残す。 */
-final class AdminRoutes(
-  svc: AdminService,
-  users: UserStore,
-  domains: DomainStore,
-  mail: MailStore,
-  queue: QueueStore,
-  delivery: Delivery,
-  dmarc: DmarcStore,
-  val sessions: SessionAuth) extends RouteSupport {
+final class AdminRoutes(svc: AdminService,
+                        users: UserStore,
+                        domains: DomainStore,
+                        mail: MailStore,
+                        queue: QueueStore,
+                        delivery: Delivery,
+                        dmarc: DmarcStore,
+                        val sessions: SessionAuth) extends RouteSupport {
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     // DMARC の集計レポート（dmarc-reports@<ドメイン> に届いたもの）
@@ -59,30 +58,19 @@ final class AdminRoutes(
     case req @ GET -> Root / "api" / "admin" / "audit" => getAdminAudit(req)
   }
 
-  private def getAdminDmarc(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def getAdminDmarc(req: Request[IO]): IO[Response[IO]] =
     admin(req)(_ => dmarc.list(param(req, "domain")).flatMap(Ok(_)))
 
-  private def getAdminDmarcRows(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def getAdminDmarcRows(req: Request[IO], id: UUID): IO[Response[IO]] =
     admin(req)(_ => dmarc.rows(id).flatMap(_.fold(err(ErrorCode.DmarcReportNotFound))(Ok(_))))
 
-  private def getAdminStats(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def getAdminStats(req: Request[IO]): IO[Response[IO]] =
     admin(req)(_ => mail.stats.flatMap(Ok(_)))
 
-  private def getAdminDomains(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def getAdminDomains(req: Request[IO]): IO[Response[IO]] =
     admin(req)(_ => domains.domainDtos.flatMap(Ok(_)))
 
-  private def postAdminDomains(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def postAdminDomains(req: Request[IO]): IO[Response[IO]] =
     admin(req)(s =>
       body[CreateDomainReq](req)(r =>
         respond(svc.createDomain(r))(id =>
@@ -91,10 +79,7 @@ final class AdminRoutes(
       )
     )
 
-  private def patchAdminDomain(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def patchAdminDomain(req: Request[IO], id: UUID): IO[Response[IO]] =
     admin(req)(s =>
       body[UpdateDomainReq](req)(r =>
         domains.updateDomain(id, r.enabled, r.autoProvision, r.catchAll).flatMap(n =>
@@ -106,10 +91,7 @@ final class AdminRoutes(
       )
     )
 
-  private def deleteAdminDomain(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def deleteAdminDomain(req: Request[IO], id: UUID): IO[Response[IO]] =
     admin(req)(s =>
       domains.domain(id).flatMap {
         case None => err(ErrorCode.DomainNotFound)
@@ -123,16 +105,10 @@ final class AdminRoutes(
       }
     )
 
-  private def getAdminDomainDns(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def getAdminDomainDns(req: Request[IO], id: UUID): IO[Response[IO]] =
     admin(req)(_ => okJson(svc.dnsRecords(id)))
 
-  private def postAdminDomainRotateDkim(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def postAdminDomainRotateDkim(req: Request[IO], id: UUID): IO[Response[IO]] =
     admin(req)(s =>
       svc.rotateDkim(id).flatMap(n =>
         if n == 0 then err(ErrorCode.DomainNotFound)
@@ -140,9 +116,7 @@ final class AdminRoutes(
       )
     )
 
-  private def getAdminAddresses(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def getAdminAddresses(req: Request[IO]): IO[Response[IO]] =
     admin(req)(_ =>
       domains.addresses(
         param(req, "domainId").flatMap(x => scala.util.Try(java.util.UUID.fromString(x)).toOption),
@@ -153,9 +127,7 @@ final class AdminRoutes(
         )).flatMap(Ok(_))
     )
 
-  private def postAdminAddresses(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def postAdminAddresses(req: Request[IO]): IO[Response[IO]] =
     admin(req)(s =>
       body[AddressReq](req)(r =>
         respond(svc.createAddress(r))(id =>
@@ -164,10 +136,7 @@ final class AdminRoutes(
       )
     )
 
-  private def putAdminAddress(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def putAdminAddress(req: Request[IO], id: UUID): IO[Response[IO]] =
     admin(req)(s =>
       body[AddressReq](req) { r =>
         val fwd = r.forwardTo.map(_.trim.toLowerCase).filter(_.nonEmpty).distinct
@@ -181,10 +150,7 @@ final class AdminRoutes(
       }
     )
 
-  private def deleteAdminAddress(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def deleteAdminAddress(req: Request[IO], id: UUID): IO[Response[IO]] =
     admin(req)(s =>
       domains.addressById(id).flatMap {
         case None => err(ErrorCode.AddressNotFound)
@@ -193,14 +159,10 @@ final class AdminRoutes(
       }
     )
 
-  private def getAdminUsers(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def getAdminUsers(req: Request[IO]): IO[Response[IO]] =
     admin(req)(_ => svc.adminUsers(param(req, "q")).flatMap(Ok(_)))
 
-  private def postAdminUsers(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def postAdminUsers(req: Request[IO]): IO[Response[IO]] =
     admin(req)(s =>
       body[CreateUserReq](req)(r =>
         respond(svc.createUser(r))(id =>
@@ -210,10 +172,7 @@ final class AdminRoutes(
       )
     )
 
-  private def patchAdminUser(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def patchAdminUser(req: Request[IO], id: UUID): IO[Response[IO]] =
     admin(req)(s =>
       body[UpdateUserReq](req) { r =>
         if r.isAdmin.contains(false) && id == s.user.id then err(ErrorCode.CannotRemoveOwnAdmin)
@@ -233,10 +192,7 @@ final class AdminRoutes(
       }
     )
 
-  private def deleteAdminUser(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def deleteAdminUser(req: Request[IO], id: UUID): IO[Response[IO]] =
     admin(req)(s =>
       if id == s.user.id then err(ErrorCode.CannotDeleteSelf)
       else
@@ -246,14 +202,10 @@ final class AdminRoutes(
         }
     )
 
-  private def getAdminAgents(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def getAdminAgents(req: Request[IO]): IO[Response[IO]] =
     adminSessionOnly(req)(_ => svc.agents.flatMap(Ok(_)))
 
-  private def postAdminAgents(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def postAdminAgents(req: Request[IO]): IO[Response[IO]] =
     adminSessionOnly(req)(s =>
       body[CreateAgentReq](req)(r =>
         respond(svc.createAgent(r))(id =>
@@ -270,10 +222,7 @@ final class AdminRoutes(
       )
     )
 
-  private def patchAdminAgent(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def patchAdminAgent(req: Request[IO], id: UUID): IO[Response[IO]] =
     adminSessionOnly(req)(s =>
       body[UpdateAgentReq](req)(r =>
         withAgent(id) { _ =>
@@ -288,10 +237,7 @@ final class AdminRoutes(
       )
     )
 
-  private def postAdminAgentKeys(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def postAdminAgentKeys(req: Request[IO], id: UUID): IO[Response[IO]] =
     adminSessionOnly(req)(s =>
       body[CreateApiKeyReq](req)(r =>
         withAgent(id) { _ =>
@@ -310,11 +256,7 @@ final class AdminRoutes(
       )
     )
 
-  private def deleteAdminAgentKey(
-    req: Request[IO],
-    id: UUID,
-    keyId: UUID
-  ): IO[Response[IO]] =
+  private def deleteAdminAgentKey(req: Request[IO], id: UUID, keyId: UUID): IO[Response[IO]] =
     adminSessionOnly(req)(s =>
       withAgent(id)(_ =>
         users.deleteApiKey(id, keyId).flatMap(n =>
@@ -326,26 +268,16 @@ final class AdminRoutes(
       )
     )
 
-  private def getAdminQueue(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def getAdminQueue(req: Request[IO]): IO[Response[IO]] =
     admin(req)(_ => queue.list(param(req, "status"), intParam(req, "limit", 100, 500)).flatMap(Ok(_)))
 
-  private def postAdminQueueRetry(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def postAdminQueueRetry(req: Request[IO], id: UUID): IO[Response[IO]] =
     admin(req)(s => queue.retryNow(id) *> audit(users, s, req, "queue.retry", Some(id.toString)) *> NoContent())
 
-  private def postAdminQueueCancel(
-    req: Request[IO],
-    id: UUID
-  ): IO[Response[IO]] =
+  private def postAdminQueueCancel(req: Request[IO], id: UUID): IO[Response[IO]] =
     admin(req)(s => queue.cancel(id) *> audit(users, s, req, "queue.cancel", Some(id.toString)) *> NoContent())
 
-  private def getAdminAudit(
-    req: Request[IO]
-  ): IO[Response[IO]] =
+  private def getAdminAudit(req: Request[IO]): IO[Response[IO]] =
     admin(req)(_ =>
       users.auditLog(
         intParam(req, "limit", 100, 500),
@@ -355,11 +287,7 @@ final class AdminRoutes(
     )
 
   /** エージェント専用アカウントだけを対象にする（ふつうのユーザーなら 404）。 */
-  private def withAgent(
-    id: java.util.UUID
-  )(
-    f: User => IO[Response[IO]]
-  ): IO[Response[IO]] =
+  private def withAgent(id: java.util.UUID)(f: User => IO[Response[IO]]): IO[Response[IO]] =
     users.findAgent(id).flatMap(_.fold(err(ErrorCode.AgentNotFound))(f))
 
 }

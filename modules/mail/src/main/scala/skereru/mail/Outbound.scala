@@ -9,6 +9,4 @@ enum RcptResult {
     msg: String)
 }
 
-final case class SmtpReplyError(
-  code: Int,
-  text: String) extends Exception(text)
+final case class SmtpReplyError(code: Int, text: String) extends Exception(text)

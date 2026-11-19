@@ -9,12 +9,8 @@ import cats.effect.*
 trait Blobs {
 
   /** 保存して ID を返す。 */
-  def put(
-    bytes: Array[Byte]
-  ): IO[String]
-  def get(
-    id: String
-  ): IO[Option[Array[Byte]]]
+  def put(bytes: Array[Byte]): IO[String]
+  def get(id: String): IO[Option[Array[Byte]]]
 
   /** 使われなくなった本体を消す（定期処理）。 */
   def purge(): IO[Int]

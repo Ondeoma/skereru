@@ -1,6 +1,5 @@
 <script lang="scala">
 import skereru.web.*
-import skereru.web.parts.*
 import io.circe.syntax.*
 import org.scalajs.dom
 import skereru.shared.*

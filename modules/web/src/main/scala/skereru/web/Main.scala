@@ -11,12 +11,17 @@ import org.scalajs.dom
  */
 object Main {
 
-  def main(args: Array[String]): Unit = {
+  def main(
+    args: Array[String]
+  ): Unit = {
     ScalactiveConfig.titleTemplate = "%s | skereru"
     ScalactiveConfig.defaultTitle = Some("skereru")
+    AppNames.init("skereru")
     Theme.apply()
     // アイコンのボタンなどのヒント（title をすぐに出す）
     Tooltip.install()
+    // CSRF の対策: 共通部品（Pwa・Observe）の要求にも X-Skereru を付ける（Api も同じヘッダーを使う）
+    sbirds.web.Fetch.extraHeaders = Map("X-Skereru" -> "1")
     // skorimako のブラウザの観測（設定があるときだけ）と、PWA（ホーム画面に追加・オフラインで開く・プッシュ通知）
     Observe.start()
     Pwa.register()

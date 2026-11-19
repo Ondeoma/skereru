@@ -24,12 +24,16 @@ object Tooltip {
     t
   }
 
-  private def target(node: dom.EventTarget): Option[dom.Element] = node match {
+  private def target(
+    node: dom.EventTarget
+  ): Option[dom.Element] = node match {
     case e: dom.Element => Option(e.closest("[title], [data-tip]"))
-    case _              => None
+    case _ => None
   }
 
-  private def show(t: dom.Element): Unit = {
+  private def show(
+    t: dom.Element
+  ): Unit = {
     val text = Option(t.getAttribute("data-tip")).getOrElse("")
     if (text.nonEmpty) {
       val box = el()
@@ -46,7 +50,9 @@ object Tooltip {
     }
   }
 
-  private def enter(t: dom.Element): Unit = if (!current.contains(t)) {
+  private def enter(
+    t: dom.Element
+  ): Unit = if (!current.contains(t)) {
     leave()
     current = Some(t)
     // 標準のツールチップを止める（data-tip に移す）
@@ -54,7 +60,8 @@ object Tooltip {
       t.setAttribute("data-tip", t.getAttribute("title"))
       t.removeAttribute("title")
     }
-    if (!t.hasAttribute("aria-label") && t.textContent.trim.isEmpty) t.setAttribute("aria-label", t.getAttribute("data-tip"))
+    if (!t.hasAttribute("aria-label") && t.textContent.trim.isEmpty)
+      t.setAttribute("aria-label", t.getAttribute("data-tip"))
     timer = dom.window.setTimeout(() => if (current.contains(t)) show(t), DelayMs)
   }
 
@@ -73,11 +80,18 @@ object Tooltip {
     // タッチだけの端末ではカーソルを重ねられないので出さない（長押しのメニューと重ならないように）
     val hover = dom.window.matchMedia("(hover: hover)")
     val doc = dom.document
-    doc.addEventListener("mouseover", (ev: dom.MouseEvent) => if (hover.matches) target(ev.target) match {
-      case Some(t) => enter(t)
-      case None    => if (current.isDefined) leave()
-    })
-    doc.addEventListener("focusin", (ev: dom.FocusEvent) => target(ev.target).filter(_.matches(":focus-visible")).foreach(enter))
+    doc.addEventListener(
+      "mouseover",
+      (ev: dom.MouseEvent) =>
+        if (hover.matches) target(ev.target) match {
+          case Some(t) => enter(t)
+          case None => if (current.isDefined) leave()
+        }
+    )
+    doc.addEventListener(
+      "focusin",
+      (ev: dom.FocusEvent) => target(ev.target).filter(_.matches(":focus-visible")).foreach(enter)
+    )
     doc.addEventListener("focusout", (_: dom.FocusEvent) => leave())
     // カーソルが画面の外に出たとき
     doc.addEventListener("mouseout", (ev: dom.MouseEvent) => if (ev.relatedTarget == null) leave())

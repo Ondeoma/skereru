@@ -44,6 +44,7 @@ def mounted(s: State): Unit = {
   if (dom.window.location.pathname.startsWith("/login")) s.ready := true
   else Store.report(Api.me()) { me =>
     Store.me := Some(me)
+    AppNames.set(me.appNames)
     Observe.setUser(me.id.toString)
     Store.loadSettings()
     Store.loadMailboxes().foreach(_ => s.ready := true)
@@ -98,7 +99,7 @@ def go(b: MailboxDto): Unit = { Store.nav := false; Router.go("/mail/" + Store.b
 <template>
   <header class="top">
     <button v-if="loggedIn" class="ghost icon only-sp" title="フォルダの一覧" @click="Store.nav := !Store.nav.v">☰</button>
-    <RouterLink to="/mail/inbox" class="logo"><span class="brand"><img src="/logo.svg" alt="" width="30" height="30"><span class="hide-sp">skereru</span></span></RouterLink>
+    <RouterLink to="/mail/inbox" class="logo"><span class="brand"><img :src='AppNames.logo("/logo.svg").v' alt="" height="30" class="brand-logo"><span class="hide-sp">{{ AppNames.self }}</span></span></RouterLink>
     <form v-if="loggedIn" class="search" @submit.prevent="search(s)">
       <span class="lens">🔍</span>
       <input type="search" v-model="s.q" placeholder="メールを検索（例: from:taro has:attachment 見積）">
@@ -181,7 +182,7 @@ kbd { font-family: ui-monospace, monospace; font-size: .8rem; border: 1px solid 
 .top { position: sticky; top: 0; z-index: 100; height: var(--header); display: flex; align-items: center; gap: .6rem; padding: 0 .9rem;
   background: var(--bg); border-bottom: 1px solid var(--line); }
 .brand { font-weight: 800; font-size: 1.2rem; color: var(--accent); letter-spacing: .02em; display: inline-flex; align-items: center; gap: .45rem; white-space: nowrap; }
-.brand img { display: block; border-radius: 8px; }
+.brand img { display: block; border-radius: 8px; width: auto; max-width: 120px; }
 .search { flex: 0 1 680px; display: flex; align-items: center; background: var(--side); border-radius: 10px; padding: 0 .6rem; margin-left: 1.2rem; }
 .search:focus-within { background: var(--bg); box-shadow: var(--shadow); }
 .search input { border: none; background: transparent; box-shadow: none !important; width: 100%; padding: .55rem .4rem; }

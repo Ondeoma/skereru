@@ -4,15 +4,27 @@ import java.net.InetAddress
 import java.nio.charset.StandardCharsets.{ISO_8859_1, UTF_8}
 import java.time.Instant
 
-class ArcSpec extends munit.FunSuite:
+class ArcSpec extends munit.FunSuite {
 
-  private def bytes(s: String) = s.replace("\n", "\r\n").getBytes(UTF_8)
+  private def bytes(
+    s: String
+  ) = s.replace("\n", "\r\n").getBytes(UTF_8)
 
-  final class FakeDns(txts: Map[String, List[String]]) extends Dns:
-    def txt(name: String) = Right(txts.getOrElse(name.toLowerCase, Nil))
-    def addresses(name: String) = Right(Nil)
-    def mx(name: String) = Right(Nil)
-    def ptr(ip: InetAddress) = Right(Nil)
+  final class FakeDns(
+    txts: Map[String, List[String]]) extends Dns {
+    def txt(
+      name: String
+    ) = Right(txts.getOrElse(name.toLowerCase, Nil))
+    def addresses(
+      name: String
+    ) = Right(Nil)
+    def mx(
+      name: String
+    ) = Right(Nil)
+    def ptr(
+      ip: InetAddress
+    ) = Right(Nil)
+  }
 
   private val (priv1, pub1) = Dkim.generate()
   private val (priv2, pub2) = Dkim.generate()
@@ -22,15 +34,26 @@ class ArcSpec extends munit.FunSuite:
   ))
   private val arc = new Arc(dns)
 
-  private val msg = bytes("From: Taro <taro@example.org>\nTo: list@example.com\nSubject: hello\n  folded\nDate: Mon, 16 Nov 2026 10:00:00 +0900\nMessage-ID: <x@example.org>\n\nbody  text \n\n\n")
+  private val msg = bytes(
+    "From: Taro <taro@example.org>\nTo: list@example.com\nSubject: hello\n  folded\nDate: Mon, 16 Nov 2026 10:00:00 +0900\nMessage-ID: <x@example.org>\n\nbody  text \n\n\n"
+  )
 
   private val none = ArcResult("none", 0, "")
 
   /** 1回目の転送（i=1）で封印したメッセージ。 */
-  private def hop1(): Array[Byte] =
-    val h = Arc.seal(msg, "example.com", "s1", Dkim.privateKey(priv1), "mx.example.com",
-      "spf=pass smtp.mailfrom=example.org; dkim=none; dmarc=pass header.from=example.org", none, Instant.now())
+  private def hop1(): Array[Byte] = {
+    val h = Arc.seal(
+      msg,
+      "example.com",
+      "s1",
+      Dkim.privateKey(priv1),
+      "mx.example.com",
+      "spf=pass smtp.mailfrom=example.org; dkim=none; dmarc=pass header.from=example.org",
+      none,
+      Instant.now()
+    )
     h.getBytes(ISO_8859_1) ++ msg
+  }
 
   test("ARC: 1回目の封印を検証すると pass（i=1）") {
     val m1 = hop1()
@@ -44,7 +67,8 @@ class ArcSpec extends munit.FunSuite:
   test("ARC: 2回目の転送で封印しても pass（i=2・cv=pass）") {
     val m1 = hop1()
     val chain = arc.verify(m1, Instant.now())
-    val h2 = Arc.seal(m1, "relay.example", "s2", Dkim.privateKey(priv2), "mx.relay.example", "arc=pass", chain, Instant.now())
+    val h2 =
+      Arc.seal(m1, "relay.example", "s2", Dkim.privateKey(priv2), "mx.relay.example", "arc=pass", chain, Instant.now())
     assert(h2.startsWith("ARC-Seal: i=2; "), h2)
     assert(h2.contains("cv=pass"), h2)
     val m2 = h2.getBytes(ISO_8859_1) ++ m1
@@ -65,7 +89,16 @@ class ArcSpec extends munit.FunSuite:
   test("ARC: ARC-Seal の cv を書き換えると fail") {
     val m1 = hop1()
     val chain = arc.verify(m1, Instant.now())
-    val m2 = Arc.seal(m1, "relay.example", "s2", Dkim.privateKey(priv2), "mx.relay.example", "arc=pass", chain, Instant.now()).getBytes(ISO_8859_1) ++ m1
+    val m2 = Arc.seal(
+      m1,
+      "relay.example",
+      "s2",
+      Dkim.privateKey(priv2),
+      "mx.relay.example",
+      "arc=pass",
+      chain,
+      Instant.now()
+    ).getBytes(ISO_8859_1) ++ m1
     // i=1 の cv を pass に（構造の確認で fail）
     val t1 = new String(m1, ISO_8859_1).replace("cv=none", "cv=pass").getBytes(ISO_8859_1)
     assertEquals(arc.verify(t1, Instant.now()).result, "fail")
@@ -77,11 +110,25 @@ class ArcSpec extends munit.FunSuite:
   test("ARC: 壊れた鎖・上限を超えるセット") {
     // 同じ番号のセットが2つあれば fail
     val m1 = hop1()
-    val dup = Arc.seal(msg, "example.com", "s1", Dkim.privateKey(priv1), "mx.example.com", "spf=pass", none, Instant.now()).getBytes(ISO_8859_1) ++ m1
+    val dup = Arc.seal(
+      msg,
+      "example.com",
+      "s1",
+      Dkim.privateKey(priv1),
+      "mx.example.com",
+      "spf=pass",
+      none,
+      Instant.now()
+    ).getBytes(ISO_8859_1) ++ m1
     assertEquals(arc.verify(dup, Instant.now()).result, "fail")
     // i=50 のセットがあれば、もう封印しない
-    val many = bytes("ARC-Seal: i=50; cv=pass\nARC-Message-Signature: i=50\nARC-Authentication-Results: i=50; x; none\n") ++ msg
-    assertEquals(Arc.seal(many, "example.com", "s1", Dkim.privateKey(priv1), "mx.example.com", "", none, Instant.now()), "")
+    val many =
+      bytes("ARC-Seal: i=50; cv=pass\nARC-Message-Signature: i=50\nARC-Authentication-Results: i=50; x; none\n") ++ msg
+    assertEquals(
+      Arc.seal(many, "example.com", "s1", Dkim.privateKey(priv1), "mx.example.com", "", none, Instant.now()),
+      ""
+    )
     // 例外を投げずに fail を返す
     assertEquals(arc.verify(many, Instant.now()).result, "fail")
   }
+}

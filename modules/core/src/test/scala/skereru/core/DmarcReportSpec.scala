@@ -6,7 +6,7 @@ import java.time.Instant
 import java.util.Base64
 import java.util.zip.{GZIPOutputStream, ZipEntry, ZipOutputStream}
 
-class DmarcReportSpec extends munit.FunSuite:
+class DmarcReportSpec extends munit.FunSuite {
 
   // Google が送ってくる形に近い見本（2行。1行目は合格、2行目は DKIM・SPF とも不合格）
   private val sample =
@@ -88,24 +88,34 @@ class DmarcReportSpec extends munit.FunSuite:
       |</feedback>
       |""".stripMargin.getBytes(UTF_8)
 
-  private def gzip(b: Array[Byte]): Array[Byte] =
+  private def gzip(
+    b: Array[Byte]
+  ): Array[Byte] = {
     val out = new ByteArrayOutputStream()
     val gz = new GZIPOutputStream(out)
     gz.write(b)
     gz.close()
     out.toByteArray
+  }
 
-  private def zip(entries: (String, Array[Byte])*): Array[Byte] =
+  private def zip(
+    entries: (String, Array[Byte])*
+  ): Array[Byte] = {
     val out = new ByteArrayOutputStream()
     val z = new ZipOutputStream(out)
-    for (name, b) <- entries do
+    for (name, b) <- entries do {
       z.putNextEntry(new ZipEntry(name))
       z.write(b)
       z.closeEntry()
+    }
     z.close()
     out.toByteArray
+  }
 
-  private def checkSample(r: Either[String, DmarcAggregate])(using munit.Location): Unit =
+  private def checkSample(
+    r: Either[String, DmarcAggregate]
+  )(using munit.Location
+  ): Unit = {
     val a = r.fold(e => fail(s"Left: $e"), identity)
     assertEquals(a.orgName, "google.com")
     assertEquals(a.email, Some("noreply-dmarc-support@google.com"))
@@ -132,6 +142,7 @@ class DmarcReportSpec extends munit.FunSuite:
     assertEquals(bad.envelopeFrom, Some("spammer.example"))
     assertEquals(bad.dkimDomains, List("spammer.example", "other.example"))
     assertEquals(bad.spfDomains, List("spammer.example"))
+  }
 
   test("XML をそのまま読む") {
     checkSample(DmarcReport.parseXml(sample))
@@ -140,7 +151,10 @@ class DmarcReportSpec extends munit.FunSuite:
 
   test("gzip と zip を先頭のバイトで見分けて読む") {
     checkSample(DmarcReport.fromBytes(gzip(sample)))
-    checkSample(DmarcReport.fromBytes(zip("readme.txt" -> "hi".getBytes(UTF_8), "google.com!example.com!1763251200!1763337599.xml" -> sample)))
+    checkSample(DmarcReport.fromBytes(zip(
+      "readme.txt" -> "hi".getBytes(UTF_8),
+      "google.com!example.com!1763251200!1763337599.xml" -> sample
+    )))
     assert(DmarcReport.fromBytes(zip("readme.txt" -> "hi".getBytes(UTF_8))).isLeft)
   }
 
@@ -202,3 +216,4 @@ class DmarcReportSpec extends munit.FunSuite:
     assert(DmarcReport.fromBytes(Array[Byte](0x1f, 0x8b.toByte, 1, 2, 3)).isLeft)
     assert(DmarcReport.fromBytes(Array.emptyByteArray).isLeft)
   }
+}

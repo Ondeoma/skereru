@@ -52,7 +52,7 @@ def answer(s: State, m: MessageDetailDto, partstat: String): Unit =
 
 def addToCalendar(m: MessageDetailDto): Unit =
   Store.report(Api.post[CalendarAddedDto](s"/api/messages/${m.summary.id}/invite/calendar")) { c =>
-    Store.toast("skuaka のカレンダーに追加しました")
+    Store.toast(s"${AppNames.nameOf("skuaka")} のカレンダーに追加しました")
   }
 
 def statusClass(s: State, m: MessageDetailDto, p: String) = invite(s, m).mapC(i => if (i.flatMap(_.myStatus).contains(p)) "small on" else "small")
@@ -215,7 +215,7 @@ def cardClass(s: State, m: MessageDetailDto) = s.open.mapC(o => if (o.contains(m
               <button :class="statusClass(s, m, &quot;TENTATIVE&quot;)" title="仮承諾と主催者に返事を送ります" @click="answer(s, m, &quot;TENTATIVE&quot;)">？ 仮承諾</button>
               <button :class="statusClass(s, m, &quot;DECLINED&quot;)" title="辞退すると主催者に返事を送ります" @click="answer(s, m, &quot;DECLINED&quot;)">✕ 辞退</button>
             </template>
-            <button v-if="inv(s, m).canAddToCalendar" class="small" title="skuaka のカレンダーに予定として追加します" @click="addToCalendar(m)">📅 カレンダーに追加</button>
+            <button v-if="inv(s, m).canAddToCalendar" class="small" :title='AppNames.of("skuaka").mapC(_ + " のカレンダーに予定として追加します")' @click="addToCalendar(m)">📅 カレンダーに追加</button>
           </div>
         </div>
         <div class="body">

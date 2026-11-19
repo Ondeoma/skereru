@@ -8,29 +8,43 @@ import java.nio.charset.StandardCharsets.UTF_8
 import java.util.Base64
 import java.util.zip.{ZipEntry, ZipOutputStream}
 
-class AttachmentTextSpec extends munit.FunSuite:
+class AttachmentTextSpec extends munit.FunSuite {
 
-  private val W = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-    |<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>""".stripMargin
+  private val W =
+    """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+      |<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>""".stripMargin
   private val WEnd = "</w:body></w:document>"
 
-  private def zip(entries: (String, Array[Byte])*): Array[Byte] =
+  private def zip(
+    entries: (String, Array[Byte])*
+  ): Array[Byte] = {
     val bo = new ByteArrayOutputStream
     val z = new ZipOutputStream(bo)
-    entries.foreach { (name, data) =>
-      z.putNextEntry(new ZipEntry(name))
-      z.write(data)
-      z.closeEntry()
+    entries.foreach {
+      (
+        name,
+        data
+      ) =>
+        {
+          z.putNextEntry(new ZipEntry(name))
+          z.write(data)
+          z.closeEntry()
+        }
     }
     z.close()
     bo.toByteArray
+  }
 
   private val docx = zip(
     "[Content_Types].xml" -> "<Types/>".getBytes(UTF_8),
-    "word/document.xml" -> (W + "<w:p><w:r><w:t>見</w:t></w:r><w:r><w:t>積書</w:t></w:r></w:p><w:p><w:r><w:t>2026年11月</w:t></w:r></w:p>" + WEnd).getBytes(UTF_8)
+    "word/document.xml" ->
+      (W + "<w:p><w:r><w:t>見</w:t></w:r><w:r><w:t>積書</w:t></w:r></w:p><w:p><w:r><w:t>2026年11月</w:t></w:r></w:p>" +
+        WEnd).getBytes(UTF_8)
   )
 
-  private def b64(b: Array[Byte]) = Base64.getMimeEncoder.encodeToString(b)
+  private def b64(
+    b: Array[Byte]
+  ) = Base64.getMimeEncoder.encodeToString(b)
 
   private val message = (
     s"""From: a@example.com
@@ -84,7 +98,7 @@ class AttachmentTextSpec extends munit.FunSuite:
   test("PDF の本文") {
     val doc = new PDDocument
     val bo = new ByteArrayOutputStream
-    try
+    try {
       val page = new PDPage
       doc.addPage(page)
       val cs = new PDPageContentStream(doc, page)
@@ -95,7 +109,7 @@ class AttachmentTextSpec extends munit.FunSuite:
       cs.endText()
       cs.close()
       doc.save(bo)
-    finally doc.close()
+    } finally doc.close()
     val text = AttachmentText.fromFile(bo.toByteArray, "application/pdf", "invoice.pdf", 10_000)
     assert(text.exists(_.contains("Invoice 2026")), text)
   }
@@ -110,36 +124,58 @@ class AttachmentTextSpec extends munit.FunSuite:
   }
 
   test("ODF・xlsx・pptx") {
-    val odt = zip("content.xml" -> """<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"><office:body><office:text><text:p>議事録</text:p><text:p>次回</text:p></office:text></office:body></office:document-content>""".getBytes(UTF_8))
+    val odt = zip("content.xml" ->
+      """<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"><office:body><office:text><text:p>議事録</text:p><text:p>次回</text:p></office:text></office:body></office:document-content>""".getBytes(
+        UTF_8
+      ))
     assertEquals(AttachmentText.fromFile(odt, "application/vnd.oasis.opendocument.text", "a.odt", 1000), Some("議事録 次回"))
-    val xlsx = zip("xl/sharedStrings.xml" -> """<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><si><t>売上</t><rPh><t>ウリアゲ</t></rPh></si><si><t>合計</t></si></sst>""".getBytes(UTF_8))
+    val xlsx = zip("xl/sharedStrings.xml" ->
+      """<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><si><t>売上</t><rPh><t>ウリアゲ</t></rPh></si><si><t>合計</t></si></sst>""".getBytes(
+        UTF_8
+      ))
     assertEquals(AttachmentText.fromFile(xlsx, "application/octet-stream", "a.xlsx", 1000), Some("売上 合計"))
-    val pptx = zip("ppt/slides/slide1.xml" -> """<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:p><a:r><a:t>企画書</a:t></a:r></a:p></p:sld>""".getBytes(UTF_8))
-    assertEquals(AttachmentText.fromFile(pptx, "application/vnd.openxmlformats-officedocument.presentationml.presentation", "a.pptx", 1000), Some("企画書"))
+    val pptx = zip("ppt/slides/slide1.xml" ->
+      """<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:p><a:r><a:t>企画書</a:t></a:r></a:p></p:sld>""".getBytes(
+        UTF_8
+      ))
+    assertEquals(
+      AttachmentText.fromFile(
+        pptx,
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "a.pptx",
+        1000
+      ),
+      Some("企画書")
+    )
   }
 
   test("DTD・外部実体は読まない") {
-    val xxe = zip("word/document.xml" -> ("""<?xml version="1.0"?><!DOCTYPE d [<!ENTITY x SYSTEM "file:///etc/passwd">]>""" +
-      """<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>a&x;b</w:t></w:r></w:p></w:body></w:document>""").getBytes(UTF_8))
+    val xxe = zip("word/document.xml" ->
+      ("""<?xml version="1.0"?><!DOCTYPE d [<!ENTITY x SYSTEM "file:///etc/passwd">]>""" +
+        """<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>a&x;b</w:t></w:r></w:p></w:body></w:document>""").getBytes(
+        UTF_8
+      ))
     val text = AttachmentText.fromFile(xxe, "", "a.docx", 1000)
     assert(!text.exists(_.contains("root:")), text)
   }
 
   /** 30 MB の document.xml（よく圧縮される）を持つ docx。 */
-  private def bombDocx(): Array[Byte] =
+  private def bombDocx(): Array[Byte] = {
     val bo = new ByteArrayOutputStream
     val z = new ZipOutputStream(bo)
     z.putNextEntry(new ZipEntry("word/document.xml"))
     z.write(W.getBytes(UTF_8))
     val chunk = ("<w:p><w:r><w:t>見積書</w:t></w:r></w:p>" * 1000).getBytes(UTF_8)
     var written = 0L
-    while written < 30L * 1024 * 1024 do
+    while written < 30L * 1024 * 1024 do {
       z.write(chunk)
       written += chunk.length
+    }
     z.write(WEnd.getBytes(UTF_8))
     z.closeEntry()
     z.close()
     bo.toByteArray
+  }
 
   test("ZIP 爆弾のような docx でも上限で止まる") {
     val bomb = bombDocx()
@@ -166,3 +202,4 @@ class AttachmentTextSpec extends munit.FunSuite:
     z.close()
     assertEquals(AttachmentText.fromFile(bo.toByteArray, "", "a.docx", 1000), None)
   }
+}

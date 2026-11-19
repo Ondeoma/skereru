@@ -202,7 +202,7 @@ def loadKeys(s: State): Unit = {
   Api.get[List[ApiKeyDto]]("/api/me/api-keys").foreach(s.keys := _)
   Api.get[List[OAuthGrantDto]]("/api/me/oauth-grants").foreach(s.grants := _)
 }
-def revokeGrant(s: State, g: OAuthGrantDto): Unit = Dialog.confirm(s"${g.name} との連携を取り消しますか？${g.name} は、あなたの権限で skereru を使えなくなります。", "取り消す") {
+def revokeGrant(s: State, g: OAuthGrantDto): Unit = Dialog.confirm(s"${g.name} との連携を取り消しますか？${g.name} は、あなたの権限で ${AppNames.selfName} を使えなくなります。", "取り消す") {
   Store.report(Api.delete(s"/api/me/oauth-grants/${js.URIUtils.encodeURIComponent(g.clientId)}"))(_ => loadKeys(s))
 }
 def grantScopes(g: OAuthGrantDto): String = g.scopes.map(sc => if (sc == ApiScope.Send) "メールの送信（send）" else s"${ApiScope.label(sc)}（$sc）").mkString("・")
@@ -298,10 +298,10 @@ def skAvailable(s: State) = s.integ.mapC(_.exists(_.skuakaUrl.isDefined))
 def skConnected(s: State) = s.integ.mapC(_.exists(_.skuakaConnected))
 def connectSkuaka(s: State): Unit =
   Store.report(Api.put[IntegrationsDto]("/api/me/integrations/skuaka", TokenReq(s.skToken.v.trim).asJson)) { i =>
-    s.integ := Some(i); s.skToken := ""; Store.toast("skuaka とつなぎました")
+    s.integ := Some(i); s.skToken := ""; Store.toast(s"${AppNames.nameOf("skuaka")} とつなぎました")
   }
 def disconnectSkuaka(s: State): Unit =
-  Dialog.confirm("skuaka との連携を解除しますか？（預かっているトークンを消します）", "解除") {
+  Dialog.confirm(s"${AppNames.nameOf("skuaka")} との連携を解除しますか？（預かっているトークンを消します）", "解除") {
     Store.report(Api.send(dom.HttpMethod.DELETE, "/api/me/integrations/skuaka")) { _ =>
       Api.get[IntegrationsDto]("/api/me/integrations").foreach(i => s.integ := Some(i))
     }
@@ -558,17 +558,17 @@ def port(f: ClientConfigDto => Option[Int]) = cfg.mapC(_.flatMap(f).map(_.toStri
 
     <template v-if="on(s, &quot;integrations&quot;)">
       <section class="panel">
-        <h2>skuaka（カレンダー）</h2>
-        <p class="muted small">会議の招待のメールにある「カレンダーに追加」で、予定を skuaka のカレンダーに足せるようにします。</p>
-        <p v-if="skAvailable(s).mapC(!_)" class="small">このサーバーでは skuaka と連携できません（管理者が <code>SKUAKA_URL</code> を設定すると使えます）。</p>
+        <h2>{{ AppNames.of("skuaka") }}（カレンダー）</h2>
+        <p class="muted small">会議の招待のメールにある「カレンダーに追加」で、予定を {{ AppNames.of("skuaka") }} のカレンダーに足せるようにします。</p>
+        <p v-if="skAvailable(s).mapC(!_)" class="small">このサーバーでは {{ AppNames.of("skuaka") }} と連携できません（管理者が <code>SKUAKA_URL</code> を設定すると使えます）。</p>
         <template v-if="skAvailable(s)">
-          <p class="small">skuaka: <a :href="skUrl(s)" target="_blank" rel="noopener noreferrer">{{ skUrl(s) }}</a>
+          <p class="small">{{ AppNames.of("skuaka") }}: <a :href="skUrl(s)" target="_blank" rel="noopener noreferrer">{{ skUrl(s) }}</a>
             ・状態: <b>{{ if (skConnected(s).v) "つながっています" else "つながっていません" }}</b></p>
           <form v-if="skConnected(s).mapC(!_)" class="row" @submit.prevent="connectSkuaka(s)">
-            <input type="password" v-model="s.skToken" placeholder="skuaka の API トークン（skuaka_…）" class="grow" autocomplete="off">
+            <input type="password" v-model="s.skToken" :placeholder='AppNames.of("skuaka").mapC(_ + " の API トークン（skuaka_…）")' class="grow" autocomplete="off">
             <button type="submit" class="primary">つなぐ</button>
           </form>
-          <p v-if="skConnected(s).mapC(!_)" class="muted small">skuaka の「設定 → API トークンと MCP」で、読み書きのトークンを作って貼り付けてください。トークンは暗号化して預かります。</p>
+          <p v-if="skConnected(s).mapC(!_)" class="muted small">{{ AppNames.of("skuaka") }} の「設定 → API トークンと MCP」で、読み書きのトークンを作って貼り付けてください。トークンは暗号化して預かります。</p>
           <button v-if="skConnected(s)" class="danger small" @click="disconnectSkuaka(s)">連携を解除</button>
         </template>
       </section>
@@ -613,7 +613,7 @@ def port(f: ClientConfigDto => Option[Int]) = cfg.mapC(_.flatMap(f).map(_.toStri
       </section>
       <section class="panel">
         <h2>連携しているサービス</h2>
-        <p class="muted small">あなたが許可して、あなたの権限で skereru を使っているサービス（skakapo など）です。取り消すと、そのサービスはすぐに使えなくなります。</p>
+        <p class="muted small">あなたが許可して、あなたの権限で {{ AppNames.self }} を使っているサービス（{{ AppNames.of("skakapo") }} など）です。取り消すと、そのサービスはすぐに使えなくなります。</p>
         <table class="list">
           <thead><tr><th>サービス</th><th>できること</th><th>許可した日時</th><th>最終使用</th><th></th></tr></thead>
           <tbody>

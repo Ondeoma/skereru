@@ -1,18 +1,16 @@
 package skereru.app
 
+import sbirds.db.*
 import cats.effect.*
 import cats.syntax.all.*
 import com.comcast.ip4s.*
 import doobie.implicits.*
-import fs2.io.file.Path
 import org.http4s.*
-import org.http4s.dsl.io.*
 import org.http4s.ember.client.EmberClientBuilder
 import org.http4s.ember.server.EmberServerBuilder
-import sbirds.http.Errors
+import sbirds.http.{BodyLimit, Errors, Health, RateLimit, RateLimitConfig, SecurityHeaders, Spa}
 import sbirds.observe.Log
 import skereru.core.ErrorCode
-import org.http4s.server.staticcontent.*
 import skereru.api.*
 import skereru.auth.{OidcClient, OidcConfig, SecretBox}
 import skereru.db.*
@@ -67,7 +65,7 @@ object Main extends IOApp.Simple {
       _ <- Log.println(s"[skereru] database migrated ($n migration(s) applied); node ${cfg.nodeId}")
       _ <- (for {
         _ <- Telemetry.resource("skereru", version, runtime)
-        xa <- Database.transactor(cfg.db)
+        xa <- Database.transactor(cfg.db, startWithoutDb = true)
         _ <- gauges(xa, cfg)
         // 外への呼び出しもトレースに出す（traceparent を付けて送る）
         http <- EmberClientBuilder.default[IO].withTimeout(30.seconds).build.map(HttpClientTelemetry(_))
@@ -153,7 +151,12 @@ object Main extends IOApp.Simple {
         )
         _ <- loops.traverse_(_.background)
         rest =
-          healthRoutes(xa, cfg.nodeId) <+>
+          // ロードバランサー用のヘルスチェック。DB（プライマリ）に書けない状態なら 503
+          Health.routes(
+            Database.isPrimary(xa),
+            s"ok ${cfg.nodeId}",
+            e => Log.report(ErrorCode.HealthCheckFailed, "", e)
+          ) <+>
             new AuthRoutes(oidc, users, adminSvc, sess, cfg.api, cfg.mail).routes <+>
             new OAuthRoutes(new OAuthStore(xa), users, sess, cfg.api).routes <+>
             new MeRoutes(users, domains, mail, queue, sess, cfg.mail).routes <+>
@@ -166,12 +169,20 @@ object Main extends IOApp.Simple {
             RumRoutes.routes <+>
             new PushRoutes(pushStore, push, sess).routes
         app = rest <+> new McpRoutes(rest, sess, cfg.api.publicUrl, cfg.api.version).routes
-        all = cfg.staticDir.fold(app)(d => app <+> spa(d))
+        // ビルド済みの画面の配信。存在しないパスは index.html（SPA）
+        pages = cfg.staticDir.fold(app)(d =>
+          app <+> Spa.routes(
+            d,
+            Spa.startsWith("api", "auth", "mcp", "oauth", ".well-known"),
+            notFound = Errors.respond(ErrorCode.PageNotFound)
+          )
+        )
+        // 本文の大きさの上限（添付ファイルの上限 + 1MB）。巨大な本文でメモリを使い切らせない
+        all = BodyLimit(cfg.api.maxUploadBytes + 1024 * 1024)(rateLimited(pages, rateLimit(cfg)))
         httpApp <- HttpTelemetry(
-          SecurityHeaders(cfg.api)(org.http4s.server.middleware.EntityLimiter.httpApp(
-            ReqInfo.middleware(cfg.trustedProxies)(Errors.handle(all.orNotFound, ErrorCode.Unexpected)),
-            cfg.api.maxUploadBytes + 1024 * 1024
-          )),
+          SecurityHeaders.app(HeaderPolicy(cfg.api))(
+            ReqInfo.middleware(cfg.trustedProxies)(Errors.handle(all.orNotFound, ErrorCode.Unexpected))
+          ),
           List("/api", "/auth", "/mcp", "/.well-known")
         )
         _ <- EmberServerBuilder.default[IO]
@@ -179,7 +190,6 @@ object Main extends IOApp.Simple {
           .withPort(Port.fromInt(cfg.port).getOrElse(port"8080"))
           .withShutdownTimeout(5.seconds)
           .withMaxHeaderSize(32 * 1024)
-          // 本文の大きさの上限（添付ファイルの上限 + 1MB）。巨大な本文でメモリを使い切らせない
           .withHttpApp(httpApp)
           .build
         _ <- Resource.eval(Log.println(
@@ -187,6 +197,28 @@ object Main extends IOApp.Simple {
         ))
       } yield ()).useForever
     } yield ()
+
+  /**
+   * 回数の制限の設定。RATE_LIMIT_AUTH（既定は lib と同じ 20）・RATE_LIMIT_PUBLIC を環境変数から読む（0 なら制限しない）。
+   * 信じるプロキシは、ReqInfo と同じ cfg.trustedProxies（TRUSTED_PROXIES。未設定ならループバックだけ）を使う
+   * （RateLimitConfig.fromEnv は未設定なら「どのプロキシも信じない」になり、既定が変わってしまうので使わない）。
+   */
+  private def rateLimit(cfg: AppConfig): RateLimitConfig = {
+    val default = RateLimitConfig()
+    RateLimitConfig(
+      sbirds.http.Env.int("RATE_LIMIT_AUTH").getOrElse(default.authPerMinute),
+      sbirds.http.Env.int("RATE_LIMIT_PUBLIC").getOrElse(default.publicPerMinute),
+      cfg.trustedProxies.flatMap((net, bits) => IpAddress.fromBytes(net.getAddress).map(Cidr(_, bits)))
+    )
+  }
+
+  /**
+   * IP ごとの回数の制限（1分あたり・ノードごと。0 なら制限しない）。数え方は全サービス共通（sbirds.http.RateLimit.standard）:
+   * ログイン（/auth/…）と OAuth の認可の画面（/oauth/authorize）を RATE_LIMIT_AUTH（既定 20）、
+   * OAuth のトークンの発行・失効（/oauth/token・/oauth/revoke）と公開の API（/api/public/…）を RATE_LIMIT_PUBLIC（既定 120）で数える。
+   */
+  private def rateLimited(routes: HttpRoutes[IO], cfg: RateLimitConfig): HttpRoutes[IO] =
+    RateLimit.standard(routes, cfg, ErrorCode.TooManyRequests)()
 
   /** DB（Patroni のプライマリ）が使えるまで待ってからマイグレーションする。複数ノード同時起動でも Flyway のロックで1回だけ適用される。 */
   private def migrateWithRetry(cfg: AppConfig, attempt: Int = 1): IO[Int] =
@@ -252,20 +284,6 @@ object Main extends IOApp.Simple {
     sbirds.push.PushMessage(from, subject, s"/m/$id", Some("skereru-new"))
   }
 
-  /** ロードバランサー用のヘルスチェック。DB（プライマリ）に書けない状態なら 503。 */
-  private def healthRoutes(xa: doobie.Transactor[IO], node: String): HttpRoutes[IO] = HttpRoutes.of[IO] {
-    case GET -> Root / "healthz" =>
-      sql"select not pg_is_in_recovery()".query[Boolean].unique.transact(xa).timeout(3.seconds).attempt.flatMap {
-        case Right(true) => text(Status.Ok, s"ok $node")
-        case Right(false) => text(Status.ServiceUnavailable, "database is read-only (not primary)")
-        case Left(e) => Log.report(ErrorCode.HealthCheckFailed, "", e) *>
-            text(Status.ServiceUnavailable, "database unavailable")
-      }
-  }
-
-  private def text(status: Status, body: String): IO[Response[IO]] =
-    IO.pure(Response[IO](status).withEntity(body)(using EntityEncoder.stringEncoder))
-
   private def startupNotes(cfg: AppConfig): IO[Unit] =
     IO.whenA(
       cfg.oidc.isEmpty
@@ -279,21 +297,4 @@ object Main extends IOApp.Simple {
       IO.whenA(
         cfg.mail.relay.isEmpty
       )(Log.println("[skereru] 外への送信は MX へ直接行います（ポート25の外向きの通信が必要です。使えない環境では RELAY_HOST を設定してください）"))
-
-  /** ビルド済みの画面の配信。存在しないパスは index.html（SPA）。 */
-  private def spa(dir: String): HttpRoutes[IO] = {
-    val files = fileService[IO](FileService.Config(dir))
-    val index = HttpRoutes.of[IO] {
-      case req @ GET -> _
-          if !Set("api", "auth", "mcp", "oauth", ".well-known").exists(p =>
-            req.pathInfo.renderString.startsWith("/" + p)
-          ) =>
-        StaticFile.fromPath(Path(dir) / "index.html", Some(req)).getOrElseF(Errors.respond(ErrorCode.PageNotFound))
-    }
-    HttpRoutes[IO] { req =>
-      val cc =
-        if req.pathInfo.renderString.startsWith("/assets/") then "public, max-age=31536000, immutable" else "no-cache"
-      (files <+> index).run(req).map(_.putHeaders("Cache-Control" -> cc))
-    }
-  }
 }

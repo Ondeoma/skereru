@@ -531,12 +531,6 @@ final case class ClientConfigDto(devLogin: Boolean,
                                  maxMessageMb: Int)
   derives Encoder.AsObject, Decoder
 
-/** ログイン後などに戻る先として使ってよいパス（同じサイトのパスだけ。//evil や /\evil・制御文字は外へ飛ぶので不可）。 */
-object SafePath {
-  def isLocal(p: String): Boolean = p.startsWith("/") && !p.startsWith("//") && !p.startsWith("/\\") &&
-    !p.exists(_ < 0x20)
-}
-
 /** DMARC の集計レポート（一覧）. passing は DKIM か SPF が pass の通数. */
 final case class DmarcReportDto(id: UUID,
                                 domain: String,

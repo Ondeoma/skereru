@@ -1,24 +1,29 @@
 package skereru.api
 
 import cats.effect.*
-import io.circe.{Decoder, Json}
+import io.circe.Json
 import org.http4s.*
 import org.http4s.circe.CirceEntityCodec.*
-import org.http4s.dsl.Http4sDsl
-import org.typelevel.ci.CIString
-import sbirds.http.Errors
+import sbirds.http.{Csrf, Errors, RouteHelpers}
 import sbirds.shared.AppError
 import skereru.core.ErrorCode
 import skereru.db.*
 import skereru.shared.*
 
-import java.util.UUID
-
 /**
- * *Routes に共通の補助（エラー応答・認証・スコープ・CSRF・リクエスト本文）。
+ * *Routes に共通の補助（エラー応答・認証・スコープ・CSRF）。本文・クエリ・パスの UUID・302 は sbirds.http.RouteHelpers。
  */
-trait RouteSupport extends Http4sDsl[IO] {
+trait RouteSupport extends RouteHelpers {
   protected def sessions: SessionAuth
+
+  protected def bodyInvalid: sbirds.shared.ErrorCode = ErrorCode.RequestBodyInvalid
+
+  // 本文の読み取りの途中のエラー（大きすぎる本文を含む）は、これまでどおり RequestBodyInvalid（400）にする
+  override protected def bodyKeepsAppError: Boolean = false
+
+  /** 0 以上 max 以下の整数のパラメータ（offset にも使うので、下限は RouteHelpers の 1 でなく 0）。 */
+  override protected def intParam(req: Request[IO], k: String, default: Int, max: Int): Int =
+    param(req, k).flatMap(_.toIntOption).map(v => math.max(0, math.min(v, max))).getOrElse(default)
 
   /** エラーの応答（コード付きでログに出る）. detail を省くとコードの既定の文言. */
   protected def err(code: ErrorCode, detail: String | Null = null): IO[Response[IO]] =
@@ -31,6 +36,9 @@ trait RouteSupport extends Http4sDsl[IO] {
 
   private val safe = Set(Method.GET, Method.HEAD, Method.OPTIONS)
 
+  /** 画面が付ける専用のヘッダー（X-Skereru）があるかを確かめる（オリジンは照合しない）。ログアウトでも使う。 */
+  protected val csrf: Csrf.Policy = Csrf.Policy.headerOnly("X-Skereru", Csrf.SafeWithOptions)
+
   /**
    * ログインしていなければ 401。スコープが足りなければ 403。
    * Cookie で更新系の要求をするときは X-Skereru ヘッダーを必須にする（ほかのサイトからは付けられないので CSRF を防げる）。
@@ -42,8 +50,7 @@ trait RouteSupport extends Http4sDsl[IO] {
         val need = if scope.nonEmpty then scope else if safe.contains(req.method) then ApiScope.Read else ApiScope.Write
         // 操作したユーザーを、トレース（スパンの属性）とこの中のログに載せる
         sbirds.observe.Telemetry.withUser(s.user.id.toString, s.user.name) {
-          if s.isSession && !safe.contains(req.method) && req.headers.get(CIString("X-Skereru")).isEmpty then
-            err(ErrorCode.CsrfHeaderMissing)
+          if s.isSession && Csrf.foreign(req, csrf) then err(ErrorCode.CsrfHeaderMissing)
           else if !s.can(need) then
             if need == ApiScope.Admin then err(ErrorCode.AdminOnly)
             else err(ErrorCode.ApiKeyScopeMissing, s"このAPIキーには $need のスコープがありません")
@@ -64,21 +71,6 @@ trait RouteSupport extends Http4sDsl[IO] {
 
   private def onlySession(f: AuthSession => IO[Response[IO]])(s: AuthSession): IO[Response[IO]] =
     if s.isSession then f(s) else err(ErrorCode.SessionOnly)
-
-  protected def body[A: Decoder](req: Request[IO])(f: A => IO[Response[IO]]): IO[Response[IO]] =
-    req.as[A].attempt.flatMap {
-      case Left(e) => err(ErrorCode.RequestBodyInvalid, s"リクエストの内容が正しくありません: ${e.getMessage.take(200)}")
-      case Right(b) => f(b)
-    }
-
-  protected object UuidVar {
-    def unapply(s: String): Option[UUID] = scala.util.Try(UUID.fromString(s)).toOption
-  }
-
-  protected def param(req: Request[IO], k: String): Option[String] = req.params.get(k).map(_.trim).filter(_.nonEmpty)
-
-  protected def intParam(req: Request[IO], k: String, default: Int, max: Int): Int =
-    param(req, k).flatMap(_.toIntOption).map(v => math.max(0, math.min(v, max))).getOrElse(default)
 
   /** multipart/form-data の file を受け取る（上限を超えたら 413）。 */
   protected def withUpload(req: Request[IO],

@@ -1,5 +1,6 @@
 package skereru.mail
 
+import sbirds.db.*
 import cats.effect.*
 import jakarta.mail.*
 import jakarta.mail.internet.*

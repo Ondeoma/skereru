@@ -2,6 +2,8 @@
 export DATABASE_URL=jdbc:postgresql://localhost:54370/skereru DATABASE_USER=skereru DATABASE_PASSWORD=skereru
 export PUBLIC_URL=http://localhost:8095 HTTP_PORT=8095
 export DEV_LOGIN=true
+# 回数の制限（IP ごとの1分あたり）。手元ではすべての要求が 127.0.0.1 から来るので、開発中は緩める
+export RATE_LIMIT_AUTH=${RATE_LIMIT_AUTH:-300}
 export MAIL_HOSTNAME=localhost
 # 特権ポートを避ける（本番は既定の 25・587・465・143・993・110・995）
 export SMTP_PORT=2525 SUBMISSION_PORT=2587 SMTPS_PORT=2465 IMAP_PORT=2143 IMAPS_PORT=2993 POP3_PORT=2110 POP3S_PORT=2995

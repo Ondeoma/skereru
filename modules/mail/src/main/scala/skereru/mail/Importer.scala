@@ -1,5 +1,7 @@
 package skereru.mail
 
+import sbirds.db.*
+import sbirds.net.NetGuard
 import sbirds.observe.Log
 
 import skereru.core.ErrorCode
@@ -15,6 +17,7 @@ import skereru.db.*
 import skereru.shared.*
 
 import java.io.ByteArrayOutputStream
+import java.net.InetAddress
 import java.time.Instant
 import java.util.{Properties, UUID}
 import scala.concurrent.duration.*
@@ -269,16 +272,27 @@ final class Importer(mail: MailStore,
     })
   )
 
+  /** host の IP のうち、つないでよいもの（OUTBOUND_ALLOW_PRIVATE なら内部も可）。内部のアドレスが1つでも混ざっていれば Left。 */
+  private def resolve(host: String): Either[String, InetAddress] = {
+    val ips = scala.util.Try(InetAddress.getByName(host)).toOption.filter(_ =>
+      host.headOption.exists(c => c.isDigit || c == '[')
+    ).toList match {
+      case Nil => dns.addresses(host).toOption.getOrElse(Nil)
+      case l => l
+    }
+    NetGuard.pick(host, ips, NetGuard.Policy.of(cfg.outboundAllowPrivate)).left.map {
+      case _: NetGuard.Rejected.Unresolvable => s"$host の IP アドレスが見つかりません"
+      case _ => s"$host は内部のアドレスを指しているため、つなげません"
+    }
+  }
+
   /** IMAP につないで f を呼ぶ。接続先は確かめた IP に固定する（名前を引き直させない＝DNS リバインディングの対策）。 */
   private def withStore[A](src: ImapSource)(f: jakarta.mail.Store => A): A = {
-    val ip = NetPolicy.resolve(dns, src.host, cfg.outboundAllowPrivate).fold(
-      e => throw new IllegalArgumentException(e),
-      identity
-    )
+    val ip = resolve(src.host).fold(e => throw new IllegalArgumentException(e), identity)
     // 143 は STARTTLS（必須）、それ以外は最初から TLS（993 など）
     val proto = if src.port == 143 then "imap" else "imaps"
     val props = new Properties()
-    props.put(s"mail.$proto.socketFactory", new PinnedSocketFactory(ip))
+    props.put(s"mail.$proto.socketFactory", NetGuard.socketFactory(ip))
     props.put(s"mail.$proto.socketFactory.fallback", "false")
     props.put(s"mail.$proto.connectiontimeout", "15000")
     props.put(s"mail.$proto.timeout", "60000")

@@ -10,25 +10,11 @@ import skereru.shared.*
 import java.time.Instant
 import java.util.UUID
 
-final case class OAuthCode(clientId: String, redirectUri: String, userId: UUID, codeChallenge: String, scope: String)
-
 /** 許可（連携）。refresh token で新しいアクセストークンを発行するときに使う。 */
 final case class OAuthGrant(id: UUID, userId: UUID, clientId: String, scopes: List[String])
 
-/** OAuth の提供側: 認可コード・許可（refresh token）・許可で発行したアクセストークン（有効期限つきの API キー）。 */
-final class OAuthStore(xa: Transactor[IO]) extends TxStore(xa) {
-
-  def createCode(hash: Array[Byte], c: OAuthCode, expires: Instant): IO[Unit] = tx(
-    sql"""insert into oauth_code (code_hash, client_id, redirect_uri, user_id, code_challenge, scope, expires_at)
-          values ($hash, ${c.clientId}, ${c.redirectUri}, ${c.userId}, ${c.codeChallenge}, ${c.scope}, $expires)""".update.run *>
-      sql"delete from oauth_code where expires_at < now() - interval '1 hour'".update.run.void
-  )
-
-  /** 認可コードを使う（有効期限内で、まだ使っていないものだけ。使ったら使用済みにする）。 */
-  def consumeCode(hash: Array[Byte]): IO[Option[OAuthCode]] = tx(
-    sql"""update oauth_code set used_at = now() where code_hash = $hash and used_at is null and expires_at > now()
-          returning client_id, redirect_uri, user_id, code_challenge, scope""".query[OAuthCode].option
-  )
+/** OAuth の提供側: 認可コード（sbirds.oauth.OAuthCodeStore）・許可（refresh token）・許可で発行したアクセストークン（有効期限つきの API キー）。 */
+final class OAuthStore(xa: Transactor[IO]) extends sbirds.oauth.OAuthCodeStore(xa) {
 
   private def insertKey(grant: UUID,
                         userId: UUID,

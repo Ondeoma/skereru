@@ -69,10 +69,11 @@ final class SmtpClient(cfg: MailConfig, dns: JndiDns) {
     // 確かめた IP にそのままつなぐ（名前でつなぐと、OS がもう一度名前を引き、その間に内部のアドレスに変えられる＝DNS リバインディング）
     val target: Option[java.net.InetAddress] =
       if relay.isEmpty && !cfg.outboundAllowPrivate then {
-        val ips = dns.addresses(host).toOption.getOrElse(Nil)
-        if ips.isEmpty || ips.exists(NetPolicy.internal) then
-          return rcpts.map(_ -> RcptResult.Perm(s"550 5.4.4 $host は内部のアドレスを指しているため送れません")).toMap
-        ips.headOption
+        sbirds.net.NetGuard.pick(host, dns.addresses(host).toOption.getOrElse(Nil)) match {
+          case Left(_) =>
+            return rcpts.map(_ -> RcptResult.Perm(s"550 5.4.4 $host は内部のアドレスを指しているため送れません")).toMap
+          case Right(ip) => Some(ip)
+        }
       } else None
     // TLS の名前（SNI・証明書の確認）には、IP ではなくホスト名を使う（startClientTls に host を渡している）
     val c = target.fold(Conn.client(host, port, 30_000))(ip => Conn.client(ip, port, 30_000))

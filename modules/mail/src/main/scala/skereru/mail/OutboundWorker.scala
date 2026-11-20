@@ -1,5 +1,6 @@
 package skereru.mail
 
+import sbirds.db.*
 import sbirds.observe.Log
 
 import skereru.core.ErrorCode

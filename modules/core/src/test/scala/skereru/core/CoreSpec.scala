@@ -457,9 +457,9 @@ class CoreSpec extends munit.FunSuite {
   }
 
   test("セキュリティ: 戻り先は同じサイトのパスだけ・IMAP の範囲の数に上限") {
-    assert(SafePath.isLocal("/mail/inbox"))
-    assert(!SafePath.isLocal("//evil.example") && !SafePath.isLocal("/\\evil.example") &&
-      !SafePath.isLocal("https://evil.example") && !SafePath.isLocal("/a\nb"))
+    assert(sbirds.shared.SafePath.isLocal("/mail/inbox"))
+    assert(!sbirds.shared.SafePath.isLocal("//evil.example") && !sbirds.shared.SafePath.isLocal("/\\evil.example") &&
+      !sbirds.shared.SafePath.isLocal("https://evil.example") && !sbirds.shared.SafePath.isLocal("/a\nb"))
     intercept[ImapSyntax](SeqSet.parse((1 to 5000).mkString(",")))
   }
 

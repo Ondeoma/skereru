@@ -8,9 +8,8 @@ import io.circe.Json
 import io.circe.syntax.*
 import org.http4s.*
 import org.http4s.circe.CirceEntityCodec.*
-import org.http4s.headers.Location
 import skereru.auth.*
-import sbirds.auth.Crypto
+import sbirds.http.{Csrf, Errors, OidcLoginFlow}
 import skereru.db.*
 import skereru.mail.MailConfig
 import skereru.shared.*
@@ -29,66 +28,78 @@ final class AuthRoutes(oidc: Option[OidcClient],
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
     case req @ GET -> Root / "auth" / "login" => getAuthLogin(req)
     case req @ GET -> Root / "auth" / "callback" => getAuthCallback(req)
-    case req @ POST -> Root / "auth" / "logout" if !req.headers.get(org.typelevel.ci.CIString("X-Skereru")).isDefined =>
-      rejectLogoutWithoutCsrf(req)
+    case req @ POST -> Root / "auth" / "logout" if !Csrf.fromOwnScreen(req, csrf) => rejectLogoutWithoutCsrf(req)
     case req @ POST -> Root / "auth" / "logout" => postAuthLogout(req)
     case req @ POST -> Root / "auth" / "dev-login" if cfg.devLogin && oidc.isEmpty => postAuthDevLogin(req)
     case GET -> Root / "api" / "client-config" => getClientConfig()
   }
 
-  private def getAuthLogin(req: Request[IO]): IO[Response[IO]] = {
-    val back = safeReturn(param(req, "returnTo"))
-    oidc match {
-      case Some(o) =>
-        val state = Crypto.randomToken(); val verifier = Crypto.randomToken(48); val nonce = Crypto.randomToken()
-        users.saveLoginState(state, verifier, nonce, back) *>
-          o.authorizationUri(state, verifier, nonce).flatMap(u =>
-            redirect(u.renderString, Some(loginCookie(state, 600)))
-          )
-      case None if cfg.devLogin => redirect(s"/login?returnTo=${java.net.URLEncoder.encode(back, "UTF-8")}")
-      case None => err(ErrorCode.OidcNotConfigured)
-    }
-  }
+  private def getAuthLogin(req: Request[IO]): IO[Response[IO]] = OidcLoginFlow.login(flow)(req)
 
-  private def getAuthCallback(req: Request[IO]): IO[Response[IO]] =
-    (oidc, param(req, "code"), param(req, "state")) match {
-      case (Some(_), Some(_), Some(state)) if !sameBrowser(req, state) =>
-        err(ErrorCode.LoginBrowserMismatch)
-      case (Some(o), Some(code), Some(state)) =>
-        users.takeLoginState(state).flatMap {
-          case None => err(ErrorCode.LoginExpired)
-          case Some((verifier, nonce, back)) =>
-            o.authenticate(code, verifier, nonce, Instant.now()).attempt.flatMap {
-              case Left(e) =>
-                users.audit(
-                  None,
-                  "web",
-                  "auth.denied",
-                  None,
-                  Some(ReqInfo.clientIp(req)),
-                  Json.obj("error" -> e.getMessage.take(300).asJson)
-                ) *>
-                  err(ErrorCode.LoginFailed)
-              case Right(id) =>
-                // 確かめられていないメールアドレスでは、ほかのアカウントへの結び付けやメールボックスの自動作成をしない
-                users.login(
-                  id.sub,
-                  id.name,
-                  id.email.filter(_ => id.emailVerified),
-                  id.picture,
-                  cfg.autoCreateUsers
-                ).flatMap {
-                  case None => err(ErrorCode.LoginUserNotRegistered)
-                  case Some(u) if u.disabled => err(ErrorCode.UserDisabled)
-                  case Some(u) =>
-                    users.syncGroups(u.id, id.groups) *> adminSvc.autoProvision(u) *> loggedIn(u, req, id.idToken)
-                      .flatMap(c => redirect(back, Some(c)).map(_.addCookie(loginCookie("", 0))))
-                }
-            }
-        }
-      case (None, _, _) => err(ErrorCode.OidcNotConfigured)
-      case _ => err(ErrorCode.LoginCodeStateRequired)
+  private def getAuthCallback(req: Request[IO]): IO[Response[IO]] = OidcLoginFlow.callback(flow)(req)
+
+  /** OIDC のログインの流れ（sbirds.http.OidcLoginFlow）に差し込む、skereru の部分。 */
+  private val flow = new OidcLoginFlow.Host[Identity] {
+    val idp = oidc.map(o =>
+      // skereru は自前の OidcClient（確かめたメールアドレスかどうかを見る）
+      new OidcLoginFlow.Idp[Identity] {
+        def authorizationUri(state: String, verifier: String, nonce: String): IO[Uri] =
+          o.authorizationUri(state, verifier, nonce)
+        def authenticate(code: String, verifier: String, nonce: String, now: Instant): IO[Identity] =
+          o.authenticate(code, verifier, nonce, now)
+      }
+    )
+    // state をこのブラウザの Cookie にも入れ、戻ってきたときに照合する（ほかの人のログインの続きを踏ませる「ログイン CSRF」を防ぐ）
+    val cookie = OidcLoginFlow.StateCookie(cfg.loginCookieName, cfg.cookieSecure, path = "/")
+
+    def returnTo(req: Request[IO]): String = safeReturn(param(req, "returnTo"))
+    def saveState(state: String, verifier: String, nonce: String, returnTo: String): IO[Unit] =
+      users.saveLoginState(state, verifier, nonce, returnTo)
+    def takeState(state: String): IO[Option[(String, String, String)]] = users.takeLoginState(state)
+    def redirect(to: String): IO[Response[IO]] = AuthRoutes.this.redirect(to)
+
+    def withoutIdp(req: Request[IO], back: String): IO[Response[IO]] =
+      if cfg.devLogin then AuthRoutes.this.redirect(s"/login?returnTo=${java.net.URLEncoder.encode(back, "UTF-8")}")
+      else err(ErrorCode.OidcNotConfigured)
+
+    def failed(req: Request[IO], f: OidcLoginFlow.Failure): IO[Response[IO]] = {
+      import OidcLoginFlow.Failure.*
+      // 詳しい理由は監査にだけ残し、画面には出さない
+      def denied(e: Throwable) = users.audit(
+        None,
+        "web",
+        "auth.denied",
+        None,
+        Some(ReqInfo.clientIp(req)),
+        Json.obj("error" -> e.getMessage.take(300).asJson)
+      ) *> err(ErrorCode.LoginFailed)
+      f match {
+        case NotConfigured => err(ErrorCode.OidcNotConfigured)
+        case ParamsMissing => err(ErrorCode.LoginCodeStateRequired)
+        case BrowserMismatch => err(ErrorCode.LoginBrowserMismatch)
+        case Expired => err(ErrorCode.LoginExpired)
+        case Denied(e) => denied(e)
+        case Failed(e) => denied(e)
+        case IdpError(e, _) => Errors.respondLogged(ErrorCode.LoginFailed, e.take(100), Some(req))
+      }
     }
+
+    def loggedIn(req: Request[IO], id: Identity, back: String): IO[Response[IO]] =
+      // 確かめられていないメールアドレスでは、ほかのアカウントへの結び付けやメールボックスの自動作成をしない
+      users.login(
+        id.sub,
+        id.name,
+        id.email.filter(_ => id.emailVerified),
+        id.picture,
+        cfg.autoCreateUsers
+      ).flatMap {
+        case None => err(ErrorCode.LoginUserNotRegistered)
+        case Some(u) if u.disabled => err(ErrorCode.UserDisabled)
+        case Some(u) =>
+          users.syncGroups(u.id, id.groups) *> adminSvc.autoProvision(u) *>
+            AuthRoutes.this.loggedIn(u, req, id.idToken).flatMap(c => AuthRoutes.this.redirect(back, Some(c)))
+      }
+  }
 
   private def rejectLogoutWithoutCsrf(req: Request[IO]): IO[Response[IO]] =
     err(ErrorCode.CsrfHeaderMissing, "X-Skereru ヘッダーが必要です")
@@ -135,29 +146,7 @@ final class AuthRoutes(oidc: Option[OidcClient],
 
   /** ログイン後に戻る先（同じサイトのパスだけ）。 */
   private def safeReturn(s: Option[String]): String =
-    s.filter(SafePath.isLocal).getOrElse("/")
-
-  private def redirect(to: String, cookie: Option[ResponseCookie] = None): IO[Response[IO]] = {
-    val r = Response[IO](Status.Found).putHeaders(Location(Uri.unsafeFromString(to)))
-    IO.pure(cookie.fold(r)(r.addCookie))
-  }
-
-  private def loginCookie(state: String, maxAge: Long): ResponseCookie =
-    ResponseCookie(
-      cfg.loginCookieName,
-      state,
-      maxAge = Some(maxAge),
-      path = Some("/"),
-      httpOnly = true,
-      secure = cfg.cookieSecure,
-      sameSite = Some(SameSite.Lax)
-    )
-
-  /** callback に来た state が、このブラウザで始めたログインのものか（ほかの人のログインの続きを踏ませる「ログイン CSRF」を防ぐ）。 */
-  private def sameBrowser(req: Request[IO], state: String): Boolean =
-    req.cookies.find(_.name == cfg.loginCookieName).exists(c =>
-      java.security.MessageDigest.isEqual(c.content.getBytes("UTF-8"), state.getBytes("UTF-8"))
-    )
+    sbirds.shared.SafePath.orElse(s)
 
   private def loggedIn(u: User, req: Request[IO], idToken: Option[String] = None): IO[ResponseCookie] =
     sessions.issue(u, req, idToken).flatTap(_ =>

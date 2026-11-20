@@ -35,19 +35,16 @@ final case class ApiConfig(
 }
 
 /**
- * 認可を求める外部のサービス（OAUTH_CLIENTS で登録する）。redirectUri は完全一致で照合する。
+ * 認可を求める外部のサービス（OAUTH_CLIENTS で登録する。sbirds.oauth.OAuthClient）。
  * scopes はそのクライアントが求めてよいスコープ（read・write・send. 既定は read だけ. admin は付けられない）。
  */
-final case class OAuthClient(id: String,
-                             secret: String,
-                             redirectUri: String,
-                             name: String,
-                             scopes: List[String] = List(ApiScope.Read))
+type OAuthClient = sbirds.oauth.OAuthClient
+val OAuthClient = sbirds.oauth.OAuthClient
 
-object OAuthClient {
+object OAuthScopes {
 
   /** OAuth で許せるスコープ（メールの送信は影響が大きいので、send は write と別にする）。 */
-  val Scopes: List[String] = List(ApiScope.Read, ApiScope.Write, ApiScope.Send)
+  val All: List[String] = List(ApiScope.Read, ApiScope.Write, ApiScope.Send)
 }
 
 /** 処理の結果（Left はエラーコード付きの失敗. 応答は RouteSupport.fail）。 */

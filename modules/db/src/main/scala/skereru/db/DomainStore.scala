@@ -1,5 +1,6 @@
 package skereru.db
 
+import sbirds.db.*
 import skereru.core.ErrorCode
 
 import sbirds.shared.AppError

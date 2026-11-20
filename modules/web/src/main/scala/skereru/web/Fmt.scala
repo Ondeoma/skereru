@@ -9,17 +9,8 @@ object Fmt {
 
   private def opts(o: (String, String)*): js.Dynamic = js.Dynamic.literal(o.map((k, v) => k -> (v: js.Any))*)
 
-  def dateTime(t: Timestamp): String =
-    t.toDate.asInstanceOf[js.Dynamic].toLocaleString(
-      "ja-JP",
-      opts(
-        "year" -> "numeric",
-        "month" -> "2-digit",
-        "day" -> "2-digit",
-        "hour" -> "2-digit",
-        "minute" -> "2-digit"
-      )
-    ).asInstanceOf[String]
+  // 日時の表示（2026/11/15 09:30・「3分前」）は sbirds-lib
+  export sbirds.web.Dates.{ago, dateTime}
 
   /** 日付だけ（2026/11/17）. */
   def date(t: Timestamp): String =
@@ -35,15 +26,6 @@ object Fmt {
     if (d.toDateString() == now.toDateString()) f"${d.getHours().toInt}%d:${d.getMinutes().toInt}%02d"
     else if (d.getFullYear() == now.getFullYear()) s"${d.getMonth().toInt + 1}月${d.getDate().toInt}日"
     else f"${d.getFullYear().toInt}/${d.getMonth().toInt + 1}%d/${d.getDate().toInt}%d"
-  }
-
-  def ago(t: Timestamp): String = {
-    val diff = (js.Date.now() - t.toEpochMilli) / 1000
-    if (diff < 60) "たった今"
-    else if (diff < 3600) s"${(diff / 60).toInt}分前"
-    else if (diff < 86400) s"${(diff / 3600).toInt}時間前"
-    else if (diff < 86400 * 7) s"${(diff / 86400).toInt}日前"
-    else dateTime(t).take(10)
   }
 
   def bytes(n: Long): String =

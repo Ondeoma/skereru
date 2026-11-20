@@ -115,7 +115,8 @@ java -cp 'dist/lib/*' skereru.app.Main
 | `HTTP_PORT` / `HTTP_BIND` | Web の待ち受け（既定 `8080`・`0.0.0.0`。`DEV_LOGIN=true` のときは既定で `127.0.0.1`） |
 | `MAIL_BIND` | メールの待ち受けアドレス（既定 `0.0.0.0`。`DEV_LOGIN=true` のときは既定で `127.0.0.1`） |
 | `PROXY_PROTOCOL_FROM` | PROXY プロトコルを受け付ける接続元（ロードバランサー）の CIDR。ロードバランサーの IP だけ（/32）にする |
-| `TRUSTED_PROXIES` | `X-Forwarded-For` を信じる接続元（ロードバランサー）の CIDR（既定はループバックだけ） |
+| `TRUSTED_PROXIES` | `X-Forwarded-For` を信じる接続元（ロードバランサー）の CIDR（既定はループバックだけ）。ログ・監査の IP と、回数の制限で数える IP を決める |
+| `RATE_LIMIT_AUTH` / `RATE_LIMIT_PUBLIC` | IP ごとの1分あたりの回数の上限。ログインと OAuth の認可の画面（`/auth/…`・`/oauth/authorize`、既定 20）と、OAuth のトークンの発行・失効（`/oauth/token`・`/oauth/revoke`）（既定 120）。0 なら制限しない。ノードごとに数える。超えたら 429（`SKERERU-1018`）と `Retry-After` |
 | `MAX_MESSAGE_MB` / `MAX_RECIPIENTS` / `MAX_RECIPIENTS_PER_HOUR` / `DEFAULT_QUOTA_MB` | メッセージの大きさ・宛先の数・1時間に外へ送れる宛先の数・容量の既定値 |
 | `SPAM_JUNK_SCORE` / `SPAM_REJECT_SCORE` | 迷惑メールに振り分ける点・受信を拒否する点（既定 5・15） |
 | `DNS_SERVERS` / `DNSBL_ZONES` | 問い合わせる DNS サーバー・DNSBL のゾーン（カンマ区切り） |

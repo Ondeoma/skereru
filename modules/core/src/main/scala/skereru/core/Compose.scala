@@ -120,7 +120,8 @@ object Compose {
   private def attachmentPart(a: Attachment): MimeBodyPart = {
     val p = new MimeBodyPart()
     p.setDataHandler(new DataHandler(new ByteArrayDataSource(a.data, a.contentType)))
-    p.setFileName(MimeUtility.encodeText(a.filename, "UTF-8", "B"))
+    // 改行などの制御文字は除く（転送する添付の名前は受け取ったメールのもの. 部品のヘッダーに行を足させない）
+    p.setFileName(MimeUtility.encodeText(a.filename.filterNot(_.isControl), "UTF-8", "B"))
     a.contentId match {
       case Some(cid) =>
         p.setContentID(s"<$cid>")

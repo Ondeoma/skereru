@@ -26,9 +26,13 @@ lazy val libSharedJS = ProjectRef(sbirdsLib, "sharedJS")
 lazy val libObserve = ProjectRef(sbirdsLib, "observe")
 lazy val libAuth = ProjectRef(sbirdsLib, "auth")
 lazy val libHttp = ProjectRef(sbirdsLib, "http")
+lazy val libMcp = ProjectRef(sbirdsLib, "mcp")
 lazy val libPush = ProjectRef(sbirdsLib, "push")
 lazy val libWeb = ProjectRef(sbirdsLib, "web")
 lazy val libStorage = ProjectRef(sbirdsLib, "storage")
+lazy val libDb = ProjectRef(sbirdsLib, "db")
+lazy val libNet = ProjectRef(sbirdsLib, "net")
+lazy val libOauth = ProjectRef(sbirdsLib, "oauth")
 
 lazy val commonTest = Seq(
   libraryDependencies ++= Seq(
@@ -80,7 +84,7 @@ lazy val core = (project in file("modules/core"))
   )
 
 lazy val db = (project in file("modules/db"))
-  .dependsOn(core, libObserve)
+  .dependsOn(core, libObserve, libDb, libOauth)
   .settings(commonTest)
   .settings(
     libraryDependencies ++= Seq(
@@ -112,11 +116,11 @@ lazy val storage = (project in file("modules/storage"))
 
 // メールのプロトコル（SMTP・IMAP・POP3）、配送、迷惑メールのフィルタ
 lazy val mail = (project in file("modules/mail"))
-  .dependsOn(core, db % "compile;test->test", auth, storage, libObserve)
+  .dependsOn(core, db % "compile;test->test", auth, storage, libObserve, libNet)
   .settings(commonTest)
 
 lazy val api = (project in file("modules/api"))
-  .dependsOn(core, db % "compile;test->test", auth, storage, mail, shared.jvm, libObserve, libHttp, libPush)
+  .dependsOn(core, db % "compile;test->test", auth, storage, mail, shared.jvm, libObserve, libHttp, libMcp, libPush)
   .settings(commonTest)
   .settings(
     libraryDependencies ++= Seq(

@@ -31,18 +31,11 @@ def mounted(s: State): Unit = {
   Fallback.install(routes)
   Shortcuts.install()
   Notify.install()
-  // ユーザーのメニューは、メニューとボタンの外をクリックしたとき・Esc キーで閉じる
-  dom.document.addEventListener("mousedown", (e: dom.MouseEvent) => if (s.menu.v) {
-    val inside = e.target match {
-      case el: dom.Element => el.closest(".me") != null
-      case _ => false
-    }
-    if (!inside) s.menu := false
-  })
-  dom.document.addEventListener("keydown", (e: dom.KeyboardEvent) => if (s.menu.v && e.key == "Escape") s.menu := false)
+  // ユーザーのメニューは、メニューとボタンの外をクリックしたとき（v-click-outside）・Esc キーで閉じる
+  useEventListener[dom.KeyboardEvent](dom.document, "keydown") { e => if (s.menu.v && e.key == "Escape") s.menu := false }
   Api.clientConfig().foreach(c => Store.config := Some(c))
   if (dom.window.location.pathname.startsWith("/login")) s.ready := true
-  else Store.report(Api.me()) { me =>
+  else Toasts.report(Api.me()) { me =>
     Store.me := Some(me)
     AppNames.set(me.appNames)
     Observe.setUser(me.id.toString)
@@ -51,8 +44,7 @@ def mounted(s: State): Unit = {
     Store.connect()
   }
   // 検索欄に今の検索の条件を出す
-  val q = new dom.URL(dom.window.location.href).searchParams.get("q")
-  if (q != null) s.q := q
+  Router.query.v.get("q").foreach(s.q := _)
 }
 
 def search(s: State): Unit = {
@@ -90,7 +82,7 @@ def hasPrimary = primary.mapC(_.nonEmpty)
 def navClass = Store.nav.mapC(o => if (o) "side open" else "side")
 
 def newFolder(): Unit = Dialog.prompt("新しいメールボックスの名前（階層は / で区切ります。例: 仕事/請求書）", "", "作成") { n =>
-  if (n.trim.nonEmpty) Store.report(Api.post[MailboxDto]("/api/mailboxes", CreateMailboxReq(n.trim).asJson)) { _ => Store.changed() }
+  if (n.trim.nonEmpty) Toasts.report(Api.post[MailboxDto]("/api/mailboxes", CreateMailboxReq(n.trim).asJson)) { _ => Store.changed() }
 }
 
 def go(b: MailboxDto): Unit = { Store.nav := false; Router.go("/mail/" + Store.boxKey(b)) }
@@ -107,16 +99,15 @@ def go(b: MailboxDto): Unit = { Store.nav := false; Router.go("/mail/" + Store.b
     <div class="spacer"></div>
     <!-- RouterLink には title を付けられないので、普通のリンクにする -->
     <a v-if="loggedIn" href="/settings" class="icon hide-sp" title="設定（署名・自動返信・メールソフト・APIキー）" @click.prevent="Router.go(&quot;/settings&quot;)">⚙️</a>
-    <div v-if="loggedIn" class="me">
+    <div v-if="loggedIn" class="me" v-click-outside="if (s.menu.v) s.menu := false">
       <!-- ログイン中のメインのアドレスを、ヘッダーで常に見えるようにする（どのアカウントで操作しているか分かるように） -->
       <button class="ghost me-btn" @click="s.menu := !s.menu.v" :title="meTip">
         <span v-if="hasPrimary" class="me-addr">{{ primary }}</span><Avatar :name="userName.v" :picture="picture.v" :size="32" />
       </button>
       <div v-if="s.menu" class="menu" @click="s.menu := false">
         <div class="who"><b>{{ userName }}</b><div class="muted small">{{ primary }}</div></div>
-        <!-- RouterLink の a にはこのコンポーネントのスタイルが当たらないので、ログアウトと同じ普通のリンクにする -->
-        <a href="/settings" @click.prevent="Router.go(&quot;/settings&quot;)">設定・メールソフト・APIキー</a>
-        <a v-if="Store.isAdmin" href="/admin" @click.prevent="Router.go(&quot;/admin&quot;)">管理</a>
+        <RouterLink to="/settings">設定・メールソフト・APIキー</RouterLink>
+        <RouterLink v-if="Store.isAdmin" to="/admin">管理</RouterLink>
         <a href="#" @click.prevent="logout()">ログアウト</a>
       </div>
     </div>
@@ -166,13 +157,7 @@ def go(b: MailboxDto): Unit = { Store.nav := false; Router.go("/mail/" + Store.b
       <p class="muted small">入力欄にいるときは使えません。</p>
     </div>
   </div>
-  <div class="toasts">
-    <div v-for="t in Store.toasts" :key="t.id" :class='if (t.error) "toast error" else "toast"'>
-      <span class="grow">{{ t.text }}</span>
-      <button v-if="t.undo.isDefined" class="undo" @click="t.undo.foreach(f => f()); Store.dismiss(t.id)">{{ t.undoLabel }}</button>
-      <button title="閉じる" @click="Store.dismiss(t.id)">×</button>
-    </div>
-  </div>
+  <ToastHost />
 </template>
 
 <style scoped>
@@ -218,7 +203,6 @@ kbd { font-family: ui-monospace, monospace; font-size: .8rem; border: 1px solid 
 .bar div { height: 100%; background: var(--accent); }
 main { flex: 1; min-width: 0; }
 .composers { position: fixed; right: 1rem; bottom: 0; display: flex; gap: .8rem; align-items: flex-end; z-index: 900; pointer-events: none; }
-.toasts .undo { color: #93c5fd; font-weight: 700; }
 .scrim { position: fixed; inset: var(--header) 0 0 0; background: rgba(0,0,0,.35); z-index: 140; }
 @media (max-width: 720px) {
   .side { position: fixed; left: 0; top: var(--header); z-index: 150; background: var(--bg); transform: translateX(-100%); transition: transform .2s; box-shadow: var(--shadow); }

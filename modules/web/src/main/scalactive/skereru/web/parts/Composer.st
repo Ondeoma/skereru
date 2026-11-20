@@ -27,7 +27,6 @@ case class State(from: RV[String],
                  suggestFor: RV[String] = RV(""),
                  el: ElementRef[dom.HTMLElement] = ElementRef(),
                  editor: RV[Option[EditorHandle]] = RV(None),
-                 timer: RV[Option[Int]] = RV(None),
                  full: RV[Boolean] = RV(false))
 
 def initState(props: Props) = {
@@ -46,14 +45,12 @@ def mounted(s: State, props: Props): Unit = {
     s.editor := Some(h)
     if (i.to.nonEmpty) h.focus()
   }
-  // 1分ごとに下書きを保存する
-  s.timer := Some(dom.window.setInterval(() => if (s.dirty.v && !s.sending.v && hasContent(s)) saveDraft(s, props, quiet = true), 60000))
+  // 1分ごとに下書きを保存する（片付けると自動で止まる）
+  useInterval(60000)(if (s.dirty.v && !s.sending.v && hasContent(s)) saveDraft(s, props, quiet = true))
+  ()
 }
 
-def unmounted(s: State): Unit = {
-  s.timer.v.foreach(dom.window.clearInterval)
-  s.editor.v.foreach(_.destroy())
-}
+def unmounted(s: State): Unit = s.editor.v.foreach(_.destroy())
 
 def hasContent(s: State): Boolean =
   s.to.v.trim.nonEmpty || s.subject.v.trim.nonEmpty || s.editor.v.exists(e => !e.isEmpty()) || s.uploads.v.nonEmpty
@@ -81,16 +78,15 @@ def doSend(s: State, props: Props, at: Option[Timestamp]): Unit = {
     case Success(d) =>
       Store.closeDraft(props.draft.seq)
       val wait = d.sendAt.toEpochMilli - js.Date.now()
-      val undo = Some(() => Store.unschedule(d.id))
-      if (at.isDefined) Store.toast(s"${When.label(d.sendAt.toDate)} に送信します", undo = undo, undoLabel = "取り消す")
-      else if (wait <= 500) Store.toast("送信しました")
-      else Store.toast("送信しています…", undo = undo, undoLabel = "取り消す", ms = wait.toInt)
+      if (at.isDefined) Toasts.withAction(s"${When.label(d.sendAt.toDate)} に送信します", "取り消す", Some(8000))(Store.unschedule(d.id))
+      else if (wait <= 500) Toasts.show("送信しました")
+      else Toasts.withAction("送信しています…", "取り消す", Some(wait.toInt))(Store.unschedule(d.id))
       // 送り終わったころに一覧を取り直す
       dom.window.setTimeout(() => Store.changed(), math.max(1000, wait + 3000))
       Store.changed()
     case Failure(e) =>
       s.sending := false
-      Store.error(e)
+      Toasts.error(e)
   }
 }
 
@@ -98,9 +94,9 @@ def saveDraft(s: State, props: Props, quiet: Boolean): Unit =
   Api.post[DraftSavedDto]("/api/drafts", req(s, props).asJson).onComplete {
     case Success(d) =>
       s.draftId := Some(d.draftId); s.dirty := false
-      if (!quiet) Store.toast("下書きを保存しました")
+      if (!quiet) Toasts.show("下書きを保存しました")
       Store.changed()
-    case Failure(e) => if (!quiet) Store.error(e)
+    case Failure(e) => if (!quiet) Toasts.error(e)
   }
 
 /** 閉じる（書きかけなら下書きに保存してから）. */
@@ -115,12 +111,7 @@ def discard(s: State, props: Props): Unit = {
 }
 
 /** 📎 ボタンで選んだファイルを添付する. */
-def attach(s: State, e: dom.Event): Unit = {
-  val input = e.target.asInstanceOf[dom.HTMLInputElement]
-  val files = (0 until input.files.length).map(input.files(_)).toList
-  input.value = ""
-  addFiles(s, files)
-}
+def attach(s: State, e: dom.Event): Unit = addFiles(s, Dom.takeFiles(e))
 
 /** ファイルをアップロードして添付に加える（📎 ボタン・本文へのドロップ）. */
 def addFiles(s: State, files: List[dom.File]): Unit =
@@ -130,7 +121,7 @@ def addFiles(s: State, files: List[dom.File]): Unit =
       s.uploading := s.uploading.v - 1
       r match {
         case Success(u) => s.uploads := s.uploads.v :+ u; s.dirty := true
-        case Failure(e) => Store.error(e)
+        case Failure(e) => Toasts.error(e)
       }
     }
   }

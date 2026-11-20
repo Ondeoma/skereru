@@ -21,9 +21,8 @@ def initState() = State()
 
 /** URL から、表示するメールボックス（なければ全体の検索）と検索の条件を読む. */
 def route(): (Option[MailboxDto], String, Boolean) = {
-  val u = new dom.URL(dom.window.location.href)
-  val p = u.pathname
-  val q = Option(u.searchParams.get("q")).getOrElse("")
+  val p = new dom.URL(dom.window.location.href).pathname
+  val q = Router.query.v.getOrElse("q", "")
   if (p.startsWith("/search")) (None, q, true)
   else if (Store.virtualList(p).isDefined) (None, Store.virtualList(p).get.query, true)
   else (Store.boxByKey(if (p.startsWith("/mail/")) p.drop(6) else "inbox"), q, false)
@@ -38,7 +37,7 @@ def load(s: State): Unit = {
     pageTitle(box.map(Store.boxLabel).getOrElse(listTitle(q)))
     Api.messages(box.map(_.id), q, s.offset.v, Store.settings.v.pageSize).onComplete { r =>
       s.loading := false
-      r.fold(Store.error, l => { s.list := l.items; s.total := l.total; s.selected := s.selected.v.filter(id => l.items.exists(_.id.toString == id)) })
+      r.fold(Toasts.error, l => { s.list := l.items; s.total := l.total; s.selected := s.selected.v.filter(id => l.items.exists(_.id.toString == id)) })
     }
   }
 }
@@ -83,9 +82,9 @@ def allSelected(s: State) = computed { s.list.v.nonEmpty && s.selected.v.size ==
 def toggleAll(s: State): Unit = s.selected := (if (allSelected(s).v) Nil else s.list.v.map(_.id.toString))
 
 def act(s: State, r: UpdateMessagesReq, msg: String, undo: Option[UpdateMessagesReq] = None): Unit =
-  Store.report(Api.update(r)) { n =>
+  Toasts.report(Api.update(r)) { n =>
     s.selected := Nil
-    Store.toast(s"${n.count} 件を$msg", undo = undo.map(u => () => Store.report(Api.update(u))(_ => Store.changed())))
+    Toasts.show(s"${n.count} 件を$msg", action = undo.map(u => "元に戻す" -> (() => Toasts.report(Api.update(u))(_ => Store.changed()))), ms = undo.map(_ => 8000))
     Store.changed()
   }
 
@@ -114,27 +113,27 @@ def move(s: State): Unit = {
 }
 def empty(s: State): Unit = box.v.foreach { b =>
   Dialog.confirm(s"${Store.boxLabel(b)}のメッセージをすべて完全に削除しますか？（元に戻せません）", "空にする") {
-    Store.report(Api.post[UpdatedDto](s"/api/mailboxes/${b.id}/empty")) { n => Store.toast(s"${n.count} 件を削除しました"); Store.changed() }
+    Toasts.report(Api.post[UpdatedDto](s"/api/mailboxes/${b.id}/empty")) { n => Toasts.show(s"${n.count} 件を削除しました"); Store.changed() }
   }
 }
 def renameBox(): Unit = box.v.filter(_.specialUse.isEmpty).foreach { b =>
   Dialog.prompt("新しい名前", b.name, "変更") { n =>
-    Store.report(Api.patchUnit(s"/api/mailboxes/${b.id}", RenameMailboxReq(n.trim).asJson)) { _ => Store.changed() }
+    Toasts.report(Api.patchUnit(s"/api/mailboxes/${b.id}", RenameMailboxReq(n.trim).asJson)) { _ => Store.changed() }
   }
 }
 def deleteBox(): Unit = box.v.filter(_.specialUse.isEmpty).foreach { b =>
   Dialog.confirm(s"メールボックス「${b.name}」と中のメッセージを削除しますか？", "削除") {
-    Store.report(Api.delete(s"/api/mailboxes/${b.id}")) { _ => Store.changed(); Router.go("/mail/inbox") }
+    Toasts.report(Api.delete(s"/api/mailboxes/${b.id}")) { _ => Store.changed(); Router.go("/mail/inbox") }
   }
 }
 
 def star(s: State, m: MessageSummaryDto): Unit =
-  Store.report(Api.update(UpdateMessagesReq.of(List(m.id)).copy(flagged = Some(!m.flagged)))) { _ =>
+  Toasts.report(Api.update(UpdateMessagesReq.of(List(m.id)).copy(flagged = Some(!m.flagged)))) { _ =>
     s.list := s.list.v.map(x => if (x.id == m.id) x.copy(flagged = !m.flagged) else x)
   }
 
 def open(m: MessageSummaryDto): Unit =
-  if (m.draft) Store.report(Api.get[ComposeReq](s"/api/drafts/${m.id}"))(r => Store.compose(r))
+  if (m.draft) Toasts.report(Api.get[ComposeReq](s"/api/drafts/${m.id}"))(r => Store.compose(r))
   else Router.go(s"/m/${m.id}")
 
 def toggle(s: State, id: String, on: Boolean): Unit = s.selected := (if (on) (s.selected.v :+ id).distinct else s.selected.v.filterNot(_ == id))

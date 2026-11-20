@@ -45,14 +45,14 @@ def statusLabel(p: Option[String]): String = p.getOrElse("") match {
 }
 
 def answer(s: State, m: MessageDetailDto, partstat: String): Unit =
-  Store.report(Api.post[UpdatedDto](s"/api/messages/${m.summary.id}/invite/reply", InviteReplyReq(partstat).asJson)) { _ =>
-    Store.toast(s"「${statusLabel(Some(partstat))}」と返事しました")
+  Toasts.report(Api.post[UpdatedDto](s"/api/messages/${m.summary.id}/invite/reply", InviteReplyReq(partstat).asJson)) { _ =>
+    Toasts.show(s"「${statusLabel(Some(partstat))}」と返事しました")
     s.invites := s.invites.v.updatedWith(m.summary.id.toString)(_.map(_.copy(myStatus = Some(partstat))))
   }
 
 def addToCalendar(m: MessageDetailDto): Unit =
-  Store.report(Api.post[CalendarAddedDto](s"/api/messages/${m.summary.id}/invite/calendar")) { c =>
-    Store.toast(s"${AppNames.nameOf("skuaka")} のカレンダーに追加しました")
+  Toasts.report(Api.post[CalendarAddedDto](s"/api/messages/${m.summary.id}/invite/calendar")) { c =>
+    Toasts.show(s"${AppNames.nameOf("skuaka")} のカレンダーに追加しました")
   }
 
 def statusClass(s: State, m: MessageDetailDto, p: String) = invite(s, m).mapC(i => if (i.flatMap(_.myStatus).contains(p)) "small on" else "small")
@@ -100,7 +100,7 @@ def ids(s: State): List[UUID] = s.thread.v.toList.flatMap(_.messages.map(_.summa
 def back(): Unit = if (dom.window.history.length > 1) dom.window.history.back() else Router.go("/mail/inbox")
 
 def act(s: State, r: UpdateMessagesReq, msg: String, leave: Boolean): Unit =
-  Store.report(Api.update(r)) { _ => Store.toast(msg); Store.changed(); if (leave) back() }
+  Toasts.report(Api.update(r)) { _ => Toasts.show(msg); Store.changed(); if (leave) back() }
 
 def archive(s: State): Unit = Store.special(SpecialUse.Archive).foreach(a => act(s, UpdateMessagesReq.of(ids(s)).copy(moveTo = Some(a.id)), "アーカイブしました", true))
 def snooze(s: State): Unit = Store.snooze(ids(s))(() => back())
@@ -113,13 +113,13 @@ def move(s: State): Unit = {
   Dialog.choose("移動先のメールボックス", choices, "移動") { id => act(s, UpdateMessagesReq.of(ids(s)).copy(moveTo = Some(UUID.fromString(id))), "移動しました", true) }
 }
 def star(s: State, m: MessageDetailDto): Unit =
-  Store.report(Api.update(UpdateMessagesReq.of(List(m.summary.id)).copy(flagged = Some(!m.summary.flagged))))(_ => load(s, Props(m.summary.id.toString), false))
+  Toasts.report(Api.update(UpdateMessagesReq.of(List(m.summary.id)).copy(flagged = Some(!m.summary.flagged))))(_ => load(s, Props(m.summary.id.toString), false))
 def isJunk(m: MessageDetailDto): Boolean = Store.mailboxes.v.find(_.id == m.summary.mailboxId).exists(_.specialUse.contains(SpecialUse.Junk))
 def anyJunk(s: State) = s.thread.mapC(_.exists(_.messages.exists(isJunk)))
 
 /** 返信・全員に返信・転送の作成画面を開く. */
 def reply(m: MessageDetailDto, mode: String): Unit =
-  Store.report(Api.get[ComposeTemplateDto](s"/api/messages/${m.summary.id}/compose?mode=$mode")) { t =>
+  Toasts.report(Api.get[ComposeTemplateDto](s"/api/messages/${m.summary.id}/compose?mode=$mode")) { t =>
     val sig = Store.settings.v.signature.trim
     val sigHtml = if (sig.isEmpty) "" else "<p>-- <br>" + escape(sig).replace("\n", "<br>") + "</p>"
     val sigText = if (sig.isEmpty) "" else s"\n\n-- \n$sig"

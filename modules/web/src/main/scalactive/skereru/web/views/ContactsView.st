@@ -42,13 +42,13 @@ def edit(s: State, c: AddressBookDto): Unit = {
 }
 
 def save(s: State): Unit =
-  Store.report(Api.post[UpdatedDto]("/api/address-book", SaveContactReq(s.address.v.trim, opt(s.name.v), opt(s.company.v), opt(s.phone.v), opt(s.note.v)).asJson)) { _ =>
-    s.editing := false; Store.toast("連絡先を保存しました"); load(s)
+  Toasts.report(Api.post[UpdatedDto]("/api/address-book", SaveContactReq(s.address.v.trim, opt(s.name.v), opt(s.company.v), opt(s.phone.v), opt(s.note.v)).asJson)) { _ =>
+    s.editing := false; Toasts.show("連絡先を保存しました"); load(s)
   }
 
 def remove(s: State, c: AddressBookDto): Unit =
   Dialog.confirm(s"${c.name.getOrElse(c.address)} を連絡先から削除しますか？", "削除") {
-    Store.report(Api.send(dom.HttpMethod.DELETE, "/api/address-book" + Api.query("address" -> Some(c.address)))) { _ => load(s) }
+    Toasts.report(Api.send(dom.HttpMethod.DELETE, "/api/address-book" + Api.query("address" -> Some(c.address)))) { _ => load(s) }
   }
 
 def write(c: AddressBookDto): Unit = Store.newMail(List(MailText.quoted(c.name, c.address)))

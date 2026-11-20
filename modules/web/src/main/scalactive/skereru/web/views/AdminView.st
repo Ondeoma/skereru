@@ -71,20 +71,20 @@ def on(s: State, t: String) = s.tab.mapC(_ == t)
 
 def loadDomains(s: State): Unit = Api.get[List[DomainDto]]("/api/admin/domains").foreach(s.domains := _)
 def addDomain(s: State): Unit =
-  Store.report(Api.post[Json]("/api/admin/domains", CreateDomainReq(s.newDomain.v.trim, s.autoProv.v).asJson)) { _ =>
-    s.newDomain := ""; loadDomains(s); Store.toast("ドメインを追加しました。DNS のレコードを設定してください")
+  Toasts.report(Api.post[Json]("/api/admin/domains", CreateDomainReq(s.newDomain.v.trim, s.autoProv.v).asJson)) { _ =>
+    s.newDomain := ""; loadDomains(s); Toasts.show("ドメインを追加しました。DNS のレコードを設定してください")
   }
 def showDns(s: State, d: DomainDto): Unit =
-  Store.report(Api.get[List[DnsRecordDto]](s"/api/admin/domains/${d.id}/dns"))(r => s.dns := Some((d, r)))
+  Toasts.report(Api.get[List[DnsRecordDto]](s"/api/admin/domains/${d.id}/dns"))(r => s.dns := Some((d, r)))
 def dnsList(s: State) = s.dns.mapC(_.toList)
 def patchDomain(s: State, d: DomainDto, r: UpdateDomainReq): Unit =
-  Store.report(Api.patchUnit(s"/api/admin/domains/${d.id}", r.asJson))(_ => loadDomains(s))
+  Toasts.report(Api.patchUnit(s"/api/admin/domains/${d.id}", r.asJson))(_ => loadDomains(s))
 def deleteDomain(s: State, d: DomainDto): Unit = Dialog.confirm(s"ドメイン ${d.name} を削除しますか？", "削除") {
-  Store.report(Api.delete(s"/api/admin/domains/${d.id}"))(_ => loadDomains(s))
+  Toasts.report(Api.delete(s"/api/admin/domains/${d.id}"))(_ => loadDomains(s))
 }
 def rotate(s: State, d: DomainDto): Unit =
   Dialog.confirm(s"${d.name} の DKIM の鍵を作り直しますか？新しいセレクターの TXT レコードを DNS に追加してください（古いレコードは数日後に消してください）。", "作り直す", danger = false) {
-    Store.report(Api.postUnit(s"/api/admin/domains/${d.id}/rotate-dkim")) { _ => loadDomains(s); showDns(s, d) }
+    Toasts.report(Api.postUnit(s"/api/admin/domains/${d.id}/rotate-dkim")) { _ => loadDomains(s); showDns(s, d) }
   }
 def okMark(r: DnsRecordDto): String = r.ok match {
   case Some(true)  => "✅"
@@ -101,15 +101,15 @@ def setCatchAll(s: State, d: DomainDto): Unit =
 
 def loadUsers(s: State): Unit = Api.get[List[AdminUserDto]]("/api/admin/users" + Api.query("q" -> Some(s.userQ.v))).foreach(s.users := _)
 def addUser(s: State): Unit =
-  Store.report(Api.post[Json]("/api/admin/users", CreateUserReq(s.uName.v.trim, s.uAddr.v.trim, Option(s.uEmail.v.trim).filter(_.nonEmpty), s.uQuota.v.toIntOption).asJson)) { _ =>
-    s.uName := ""; s.uAddr := ""; s.uEmail := ""; s.uQuota := ""; loadUsers(s); loadAddrs(s); Store.toast("ユーザーを作りました")
+  Toasts.report(Api.post[Json]("/api/admin/users", CreateUserReq(s.uName.v.trim, s.uAddr.v.trim, Option(s.uEmail.v.trim).filter(_.nonEmpty), s.uQuota.v.toIntOption).asJson)) { _ =>
+    s.uName := ""; s.uAddr := ""; s.uEmail := ""; s.uQuota := ""; loadUsers(s); loadAddrs(s); Toasts.show("ユーザーを作りました")
   }
-def patchUser(s: State, u: AdminUserDto, r: UpdateUserReq): Unit = Store.report(Api.patchUnit(s"/api/admin/users/${u.id}", r.asJson))(_ => loadUsers(s))
+def patchUser(s: State, u: AdminUserDto, r: UpdateUserReq): Unit = Toasts.report(Api.patchUnit(s"/api/admin/users/${u.id}", r.asJson))(_ => loadUsers(s))
 def quota(s: State, u: AdminUserDto): Unit = Dialog.prompt(s"${u.name} の容量（MB）", (u.quotaBytes / 1024 / 1024).toString, "変更") { v =>
   v.trim.toIntOption.foreach(q => patchUser(s, u, UpdateUserReq(None, None, None, Some(q))))
 }
 def deleteUser(s: State, u: AdminUserDto): Unit = Dialog.confirm(s"ユーザー ${u.name} と、そのメールをすべて削除しますか？（元に戻せません）", "削除") {
-  Store.report(Api.delete(s"/api/admin/users/${u.id}")) { _ => loadUsers(s); loadAddrs(s) }
+  Toasts.report(Api.delete(s"/api/admin/users/${u.id}")) { _ => loadUsers(s); loadAddrs(s) }
 }
 def usage(u: AdminUserDto): String = s"${Fmt.bytes(u.usedBytes)} / ${Fmt.bytes(u.quotaBytes)}"
 
@@ -118,16 +118,16 @@ def usage(u: AdminUserDto): String = s"${Fmt.bytes(u.usedBytes)} / ${Fmt.bytes(u
 def loadAddrs(s: State): Unit = Api.get[List[AddressDto]]("/api/admin/addresses").foreach(s.addrs := _)
 def addAddr(s: State): Unit = {
   val fwd = s.aFwd.v.split("[,\\s]+").map(_.trim).filter(_.nonEmpty).toList
-  Store.report(Api.post[Json]("/api/admin/addresses", AddressReq(s.aAddr.v.trim, Option(s.aUser.v).filter(_.nonEmpty).map(UUID.fromString), fwd, s.aSend.v).asJson)) { _ =>
-    s.aAddr := ""; s.aFwd := ""; loadAddrs(s); Store.toast("アドレスを追加しました")
+  Toasts.report(Api.post[Json]("/api/admin/addresses", AddressReq(s.aAddr.v.trim, Option(s.aUser.v).filter(_.nonEmpty).map(UUID.fromString), fwd, s.aSend.v).asJson)) { _ =>
+    s.aAddr := ""; s.aFwd := ""; loadAddrs(s); Toasts.show("アドレスを追加しました")
   }
 }
 def editFwd(s: State, a: AddressDto): Unit = Dialog.prompt(s"${a.address} の転送先（カンマ区切り）", a.forwardTo.mkString(", "), "保存") { v =>
   val fwd = v.split("[,\\s]+").map(_.trim).filter(_.nonEmpty).toList
-  Store.report(Api.putUnit(s"/api/admin/addresses/${a.id}", AddressReq(a.address, a.userId, fwd, a.canSend).asJson))(_ => loadAddrs(s))
+  Toasts.report(Api.putUnit(s"/api/admin/addresses/${a.id}", AddressReq(a.address, a.userId, fwd, a.canSend).asJson))(_ => loadAddrs(s))
 }
 def deleteAddr(s: State, a: AddressDto): Unit = Dialog.confirm(s"アドレス ${a.address} を削除しますか？", "削除") {
-  Store.report(Api.delete(s"/api/admin/addresses/${a.id}"))(_ => loadAddrs(s))
+  Toasts.report(Api.delete(s"/api/admin/addresses/${a.id}"))(_ => loadAddrs(s))
 }
 def userChoices(s: State) = s.users.mapC(us => Opt("", "（ユーザーなし・転送だけ）") :: us.map(u => Opt(u.id.toString, u.name, hint = u.addresses.headOption.getOrElse(""))))
 
@@ -135,22 +135,22 @@ def userChoices(s: State) = s.users.mapC(us => Opt("", "（ユーザーなし・
 
 def loadAgents(s: State): Unit = Api.get[List[AgentDto]]("/api/admin/agents").foreach(s.agents := _)
 def addAgent(s: State): Unit =
-  Store.report(Api.post[AgentDto]("/api/admin/agents", CreateAgentReq(s.gName.v.trim, Option(s.gAddr.v.trim).filter(_.nonEmpty)).asJson)) { _ =>
-    s.gName := ""; s.gAddr := ""; loadAgents(s); loadUsers(s); loadAddrs(s); Store.toast("エージェント専用アカウントを作りました")
+  Toasts.report(Api.post[AgentDto]("/api/admin/agents", CreateAgentReq(s.gName.v.trim, Option(s.gAddr.v.trim).filter(_.nonEmpty)).asJson)) { _ =>
+    s.gName := ""; s.gAddr := ""; loadAgents(s); loadUsers(s); loadAddrs(s); Toasts.show("エージェント専用アカウントを作りました")
   }
-def patchAgent(s: State, a: AgentDto, r: UpdateAgentReq): Unit = Store.report(Api.patch[AgentDto](s"/api/admin/agents/${a.id}", r.asJson))(_ => loadAgents(s))
+def patchAgent(s: State, a: AgentDto, r: UpdateAgentReq): Unit = Toasts.report(Api.patch[AgentDto](s"/api/admin/agents/${a.id}", r.asJson))(_ => loadAgents(s))
 def renameAgent(s: State, a: AgentDto): Unit = Dialog.prompt("エージェント専用アカウントの名前", a.name, "変更") { v =>
   patchAgent(s, a, UpdateAgentReq(Some(v), None))
 }
 def openKey(s: State, a: AgentDto): Unit = { s.keyFor := Some(a); s.createdKey := None }
 def keyForList(s: State) = s.keyFor.mapC(_.toList)
 def issueKey(s: State, a: AgentDto): Unit =
-  Store.report(Api.post[CreatedApiKeyDto](s"/api/admin/agents/${a.id}/keys", CreateApiKeyReq(s.kName.v, s.kScopes.v, s.kDays.v.toIntOption).asJson)) { r =>
+  Toasts.report(Api.post[CreatedApiKeyDto](s"/api/admin/agents/${a.id}/keys", CreateApiKeyReq(s.kName.v, s.kScopes.v, s.kDays.v.toIntOption).asJson)) { r =>
     s.keyFor := None; s.createdKey := Some(a.name -> r.key); loadAgents(s)
   }
 def revokeAgentKey(s: State, a: AgentDto, k: ApiKeyDto): Unit =
   Dialog.confirm(s"${a.name} の APIキー「${k.name}」を失効させますか？このキーを使っているエージェントは使えなくなります。", "失効") {
-    Store.report(Api.delete(s"/api/admin/agents/${a.id}/keys/${k.id}"))(_ => loadAgents(s))
+    Toasts.report(Api.delete(s"/api/admin/agents/${a.id}/keys/${k.id}"))(_ => loadAgents(s))
   }
 def createdKeyText(s: State) = s.createdKey.mapC(_.map(_._2).getOrElse(""))
 def createdKeyFor(s: State) = s.createdKey.mapC(_.map(_._1).getOrElse(""))
@@ -158,8 +158,8 @@ def createdKeyFor(s: State) = s.createdKey.mapC(_.map(_._1).getOrElse(""))
 // ---------------------------------------------------------------- 送信待ち
 
 def loadQueue(s: State): Unit = Api.get[List[QueueItemDto]]("/api/admin/queue" + Api.query("status" -> Some(s.qStatus.v))).foreach(s.queue := _)
-def retry(s: State, q: QueueItemDto): Unit = Store.report(Api.postUnit(s"/api/admin/queue/${q.id}/retry"))(_ => loadQueue(s))
-def cancel(s: State, q: QueueItemDto): Unit = Store.report(Api.postUnit(s"/api/admin/queue/${q.id}/cancel"))(_ => loadQueue(s))
+def retry(s: State, q: QueueItemDto): Unit = Toasts.report(Api.postUnit(s"/api/admin/queue/${q.id}/retry"))(_ => loadQueue(s))
+def cancel(s: State, q: QueueItemDto): Unit = Toasts.report(Api.postUnit(s"/api/admin/queue/${q.id}/cancel"))(_ => loadQueue(s))
 def stat(s: State, f: StatsDto => String) = s.stats.mapC(_.map(f).getOrElse("…"))
 </script>
 

@@ -26,11 +26,11 @@ object Notify {
 
   /** 有効にする（ブラウザが許可を求める. 許可されなければ有効にしない）. */
   def enable(): Unit =
-    if (!supported) Store.toast("このブラウザは通知に対応していません", error = true)
+    if (!supported) Toasts.show("このブラウザは通知に対応していません", error = true)
     else api.requestPermission().asInstanceOf[js.Promise[String]].toFuture.foreach { p =>
       if (p == "granted") {
-        scala.util.Try(dom.window.localStorage.setItem(Key, "on")); state := "on"; Store.toast("新着の通知を有効にしました")
-      } else Store.toast("ブラウザで通知が許可されていません（ブラウザのサイトの設定で許可できます）", error = true)
+        scala.util.Try(dom.window.localStorage.setItem(Key, "on")); state := "on"; Toasts.show("新着の通知を有効にしました")
+      } else Toasts.show("ブラウザで通知が許可されていません（ブラウザのサイトの設定で許可できます）", error = true)
     }
 
   def disable(): Unit = { scala.util.Try(dom.window.localStorage.removeItem(Key)); state := "off" }

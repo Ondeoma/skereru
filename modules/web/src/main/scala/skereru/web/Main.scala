@@ -18,6 +18,9 @@ object Main {
     Theme.apply()
     // アイコンのボタンなどのヒント（title をすぐに出す）
     Tooltip.install()
+    // お知らせは 5 秒（エラーは 9 秒）で消し、同時に 4 つまで出す（「元に戻す」付きは 8 秒）
+    Toasts.duration = 5000
+    Toasts.max = 4
     // CSRF の対策: 共通部品（Pwa・Observe）の要求にも X-Skereru を付ける（Api も同じヘッダーを使う）
     sbirds.web.Fetch.extraHeaders = Map("X-Skereru" -> "1")
     // skorimako のブラウザの観測（設定があるときだけ）と、PWA（ホーム画面に追加・オフラインで開く・プッシュ通知）

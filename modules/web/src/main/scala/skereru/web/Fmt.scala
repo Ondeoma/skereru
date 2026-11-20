@@ -28,11 +28,7 @@ object Fmt {
     else f"${d.getFullYear().toInt}/${d.getMonth().toInt + 1}%d/${d.getDate().toInt}%d"
   }
 
-  def bytes(n: Long): String =
-    if (n < 1024) s"$n B"
-    else if (n < 1024 * 1024) f"${n / 1024.0}%.1f KB"
-    else if (n < 1024L * 1024 * 1024) f"${n / 1024.0 / 1024.0}%.1f MB"
-    else f"${n / 1024.0 / 1024.0 / 1024.0}%.2f GB"
+  export sbirds.web.Formats.bytes
 
   def addr(a: AddrDto): String = a.name.filter(_.nonEmpty).getOrElse(a.address)
   def addrFull(a: AddrDto): String = a.name.filter(_.nonEmpty).fold(a.address)(n => s"$n <${a.address}>")

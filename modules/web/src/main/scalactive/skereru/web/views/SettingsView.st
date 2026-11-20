@@ -6,7 +6,6 @@ import org.scalajs.dom
 import skereru.shared.*
 
 import java.util.UUID
-import scala.concurrent.{Future, Promise}
 import scala.scalajs.concurrent.JSExecutionContext.Implicits.queue
 import scala.scalajs.js
 
@@ -42,24 +41,23 @@ case class State(tab: RV[String] = RV("general"),
                  imPort: RV[String] = RV("993"),
                  imUser: RV[String] = RV(""),
                  imPass: RV[String] = RV(""),
-                 imBusy: RV[Boolean] = RV(false),
+                 imBusy: ActionState,
                  fileRunning: RV[Boolean] = RV(false),
                  fileCancel: RV[Boolean] = RV(false),
                  fileProgress: RV[String] = RV(""),
                  dropping: RV[Boolean] = RV(false),
-                 timer: RV[Option[Int]] = RV(None),
                  exportBox: RV[String] = RV(""),
                  integ: RV[Option[IntegrationsDto]] = RV(None),
                  skToken: RV[String] = RV(""))
 
-def initState() = State()
+def initState() = State(imBusy = useAction())
 
 def mounted(s: State): Unit = {
   pageTitle("設定")
   Api.get[IntegrationsDto]("/api/me/integrations").foreach(i => s.integ := Some(i))
   // 取り込みの進み具合（取り込みのタブを開いていて、進行中のものがあるときだけ確かめる）
   loadImports(s)
-  s.timer := Some(dom.window.setInterval(() => if (s.tab.v == "import" && s.imports.v.exists(j => active(j))) loadImports(s), 3000))
+  useInterval(3000)(if (s.tab.v == "import" && s.imports.v.exists(j => active(j))) loadImports(s))
   Store.me.v.foreach(m => s.name := m.name)
   Api.get[MailSettingsDto]("/api/me/settings").foreach { x =>
     Store.settings := x
@@ -85,51 +83,29 @@ def save(s: State): Unit = {
   val x = MailSettingsDto(s.signature.v, VacationDto(s.vacOn.v, s.vacSubject.v, s.vacBody.v, opt(s.vacStart.v), opt(s.vacEnd.v), s.vacContacts.v),
     s.images.v, lines(s.allow.v), lines(s.block.v), s.conversation.v, s.pageSize.v.toIntOption.getOrElse(50),
     s.undoSecs.v.toIntOption.getOrElse(10))
-  Store.report(Api.put[MailSettingsDto]("/api/me/settings", x.asJson)) { saved => Store.settings := saved; Store.toast("保存しました"); Store.changed() }
+  Toasts.report(Api.put[MailSettingsDto]("/api/me/settings", x.asJson)) { saved => Store.settings := saved; Toasts.show("保存しました"); Store.changed() }
 }
 
 // ---------------------------------------------------------------- アイコン
-
-val AvatarPx = 256
 
 def myName = Store.me.mapC(_.map(_.name).getOrElse(""))
 def myPicture = Store.me.mapC(_.flatMap(_.avatarUrl))
 /** このサービスに保存したアイコンがあるか（なければ IdP の画像か、名前の1文字目）. */
 def uploaded = Store.me.mapC(_.exists(_.avatarUrl.exists(_.startsWith("/api/users/"))))
 
-/** 画像の中央を正方形に切り抜き、256×256 にする（WebP. 対応していないブラウザでは PNG）. */
-def square(file: dom.File): Future[dom.Blob] = {
-  js.Dynamic.global.createImageBitmap(file).asInstanceOf[js.Promise[js.Dynamic]].toFuture.flatMap { img =>
-    val (w, h) = (img.width.asInstanceOf[Double], img.height.asInstanceOf[Double])
-    val side = math.min(w, h)
-    val canvas = dom.document.createElement("canvas").asInstanceOf[dom.HTMLCanvasElement]
-    canvas.width = AvatarPx; canvas.height = AvatarPx
-    val ctx = canvas.getContext("2d").asInstanceOf[js.Dynamic]
-    ctx.imageSmoothingQuality = "high"
-    ctx.drawImage(img, (w - side) / 2, (h - side) / 2, side, side, 0, 0, AvatarPx, AvatarPx)
-    val p = Promise[dom.Blob]()
-    canvas.asInstanceOf[js.Dynamic].toBlob((b: dom.Blob) =>
-      if (b == null) p.failure(new Exception("画像を作れませんでした")) else p.success(b), "image/webp", 0.9)
-    p.future
-  }
-}
-
-def pickAvatar(e: dom.Event): Unit = {
-  val input = e.target.asInstanceOf[dom.HTMLInputElement]
-  Option(input.files).filter(_.length > 0).map(_(0)).foreach { f =>
-    input.value = "" // 同じファイルを選び直せるように
-    if (!f.`type`.startsWith("image/")) Store.toast("画像のファイルを選んでください", error = true)
-    else Store.report(square(f).flatMap(b => Api.putBlob("/api/me/avatar", b))) { _ => Store.toast("アイコンを保存しました"); Store.reloadMe() }
-  }
+/** アイコンの画像を選んだとき（正方形に切り抜いて 256×256 にして送る）. */
+def pickAvatar(e: dom.Event): Unit = Dom.takeFiles(e).headOption.foreach { f =>
+  if (!f.`type`.startsWith("image/")) Toasts.show("画像のファイルを選んでください", error = true)
+  else Toasts.report(Images.square(f).flatMap(b => Api.putBlob("/api/me/avatar", b))) { _ => Toasts.show("アイコンを保存しました"); Store.reloadMe() }
 }
 
 def removeAvatar(): Unit =
   Dialog.confirm("保存したアイコンを消しますか？（ログインの仕組みから受け取った画像か、名前の1文字目の表示に戻ります）", "消す") {
-    Store.report(Api.delete("/api/me/avatar")) { _ => Store.toast("アイコンを消しました"); Store.reloadMe() }
+    Toasts.report(Api.delete("/api/me/avatar")) { _ => Toasts.show("アイコンを消しました"); Store.reloadMe() }
   }
 
 def saveName(s: State): Unit =
-  Store.report(Api.patchUnit("/api/me", UpdateMeReq(Some(s.name.v), None).asJson)) { _ => Store.toast("保存しました"); Store.reloadMe() }
+  Toasts.report(Api.patchUnit("/api/me", UpdateMeReq(Some(s.name.v), None).asJson)) { _ => Toasts.show("保存しました"); Store.reloadMe() }
 
 // ---------------------------------------------------------------- 振り分け
 
@@ -154,13 +130,13 @@ def saveRule(s: State): Unit = s.editing.v.foreach { (id, r) =>
     case Some(x) => Api.putUnit(s"/api/filters/$x", r.asJson)
     case None    => Api.post[FilterRuleDto]("/api/filters", r.asJson).map(_ => ())
   }
-  Store.report(f) { _ => s.editing := None; loadRules(s); Store.toast("規則を保存しました") }
+  Toasts.report(f) { _ => s.editing := None; loadRules(s); Toasts.show("規則を保存しました") }
 }
 def deleteRule(s: State, r: FilterRuleDto): Unit = Dialog.confirm(s"規則「${r.name}」を削除しますか？", "削除") {
-  Store.report(Api.delete(s"/api/filters/${r.id}"))(_ => loadRules(s))
+  Toasts.report(Api.delete(s"/api/filters/${r.id}"))(_ => loadRules(s))
 }
 def toggleRule(s: State, r: FilterRuleDto): Unit =
-  Store.report(Api.putUnit(s"/api/filters/${r.id}", FilterRuleReq(r.name, !r.enabled, r.matchAll, r.conditions, r.actions).asJson))(_ => loadRules(s))
+  Toasts.report(Api.putUnit(s"/api/filters/${r.id}", FilterRuleReq(r.name, !r.enabled, r.matchAll, r.conditions, r.actions).asJson))(_ => loadRules(s))
 def moveRule(s: State, r: FilterRuleDto, dir: Int): Unit = {
   val l = s.rules.v
   val i = l.indexWhere(_.id == r.id)
@@ -168,7 +144,7 @@ def moveRule(s: State, r: FilterRuleDto, dir: Int): Unit = {
   if (j >= 0 && j < l.size) {
     val re = l.updated(i, l(j)).updated(j, l(i))
     s.rules := re
-    Store.report(Api.putUnit("/api/filters/order", ReorderReq(re.map(_.id)).asJson))(_ => loadRules(s))
+    Toasts.report(Api.putUnit("/api/filters/order", ReorderReq(re.map(_.id)).asJson))(_ => loadRules(s))
   }
 }
 def condText(c: RuleConditionDto): String =
@@ -183,17 +159,17 @@ def boxOpts = Store.mailboxes.mapC(_.map(b => Opt(b.name, Store.boxLabel(b))))
 // ---------------------------------------------------------------- アドレス
 
 def addresses = Store.me.mapC(_.toList.flatMap(_.addresses))
-def setPrimary(a: AddressDto): Unit = Store.report(Api.putUnit(s"/api/me/primary-address/${a.id}", io.circe.Json.obj()))(_ => Store.reloadMe())
+def setPrimary(a: AddressDto): Unit = Toasts.report(Api.putUnit(s"/api/me/primary-address/${a.id}", io.circe.Json.obj()))(_ => Store.reloadMe())
 
 // ---------------------------------------------------------------- アプリパスワード・APIキー
 
 def loadPasswords(s: State): Unit = Api.get[List[AppPasswordDto]]("/api/me/app-passwords").foreach(s.passwords := _)
 def createPw(s: State): Unit =
-  Store.report(Api.post[CreatedAppPasswordDto]("/api/me/app-passwords", CreateAppPasswordReq(s.pwName.v).asJson)) { r =>
+  Toasts.report(Api.post[CreatedAppPasswordDto]("/api/me/app-passwords", CreateAppPasswordReq(s.pwName.v).asJson)) { r =>
     s.createdPw := Some(r); s.pwName := ""; loadPasswords(s)
   }
 def deletePw(s: State, p: AppPasswordDto): Unit = Dialog.confirm(s"アプリパスワード「${p.name}」を削除しますか？そのメールソフトはログインできなくなります。", "削除") {
-  Store.report(Api.delete(s"/api/me/app-passwords/${p.id}"))(_ => loadPasswords(s))
+  Toasts.report(Api.delete(s"/api/me/app-passwords/${p.id}"))(_ => loadPasswords(s))
 }
 def pwText(s: State) = s.createdPw.mapC(_.map(_.password).getOrElse(""))
 def pwUser(s: State) = s.createdPw.mapC(_.map(_.username).getOrElse(""))
@@ -203,23 +179,21 @@ def loadKeys(s: State): Unit = {
   Api.get[List[OAuthGrantDto]]("/api/me/oauth-grants").foreach(s.grants := _)
 }
 def revokeGrant(s: State, g: OAuthGrantDto): Unit = Dialog.confirm(s"${g.name} との連携を取り消しますか？${g.name} は、あなたの権限で ${AppNames.selfName} を使えなくなります。", "取り消す") {
-  Store.report(Api.delete(s"/api/me/oauth-grants/${js.URIUtils.encodeURIComponent(g.clientId)}"))(_ => loadKeys(s))
+  Toasts.report(Api.delete(s"/api/me/oauth-grants/${js.URIUtils.encodeURIComponent(g.clientId)}"))(_ => loadKeys(s))
 }
 def grantScopes(g: OAuthGrantDto): String = g.scopes.map(sc => if (sc == ApiScope.Send) "メールの送信（send）" else s"${ApiScope.label(sc)}（$sc）").mkString("・")
 def createKey(s: State): Unit =
-  Store.report(Api.post[CreatedApiKeyDto]("/api/me/api-keys", CreateApiKeyReq(s.keyName.v, s.scopes.v, s.days.v.toIntOption).asJson)) { r =>
+  Toasts.report(Api.post[CreatedApiKeyDto]("/api/me/api-keys", CreateApiKeyReq(s.keyName.v, s.scopes.v, s.days.v.toIntOption).asJson)) { r =>
     s.createdKey := Some(r.key); s.keyName := ""; loadKeys(s)
   }
 def revoke(s: State, k: ApiKeyDto): Unit = Dialog.confirm(s"APIキー「${k.name}」を失効させますか？使っているプログラム・AI は使えなくなります。", "失効") {
-  Store.report(Api.delete(s"/api/me/api-keys/${k.id}"))(_ => loadKeys(s))
+  Toasts.report(Api.delete(s"/api/me/api-keys/${k.id}"))(_ => loadKeys(s))
 }
 def origin: String = dom.window.location.origin
 def mcpCommand(s: State) = s.createdKey.mapC(k => s"claude mcp add --transport http skereru $origin/mcp --header \"Authorization: Bearer ${k.getOrElse("<APIキー>")}\"")
 def keyText(s: State) = s.createdKey.mapC(_.getOrElse(""))
 
 // ---------------------------------------------------------------- メールの取り込み（Gmail など）
-
-def unmounted(s: State): Unit = s.timer.v.foreach(dom.window.clearInterval)
 
 def loadImports(s: State): Unit = Api.get[List[ImportJobDto]]("/api/imports").foreach(l => s.imports := l)
 def active(j: ImportJobDto): Boolean = j.status == "queued" || j.status == "running"
@@ -237,15 +211,13 @@ def counts(j: ImportJobDto): String = s"${j.imported} 件" + (if (j.skipped > 0)
 def startImap(s: State): Unit =
   if (s.imHost.v.trim.isEmpty || s.imUser.v.trim.isEmpty || s.imPass.v.isEmpty) Dialog.alert("サーバー・メールアドレス・パスワードを入力してください")
   else {
-    s.imBusy := true
-    Api.post[ImportJobDto]("/api/imports/imap", ImapImportReq(s.imHost.v.trim, s.imPort.v.toIntOption.getOrElse(993), s.imUser.v.trim, s.imPass.v).asJson).onComplete { r =>
-      s.imBusy := false
+    s.imBusy.run(Api.post[ImportJobDto]("/api/imports/imap", ImapImportReq(s.imHost.v.trim, s.imPort.v.toIntOption.getOrElse(993), s.imUser.v.trim, s.imPass.v).asJson)).onComplete { r =>
       r match {
         case scala.util.Success(_) =>
           s.imPass := ""
-          Store.toast("取り込みを始めました。この画面を閉じても、サーバーが続けます")
+          Toasts.show("取り込みを始めました。この画面を閉じても、サーバーが続けます")
           loadImports(s)
-        case scala.util.Failure(e) => Store.error(e)
+        case scala.util.Failure(e) => Toasts.error(e)
       }
     }
   }
@@ -277,8 +249,8 @@ def runFiles(s: State, files: dom.FileList): Unit =
       s.fileRunning := false; s.fileProgress := ""
       r match {
         case scala.util.Success(p) =>
-          Store.toast(if (s.fileCancel.v) s"取り込みを中止しました（${p.imported} 件は取り込み済み）" else s"${p.imported} 件を取り込みました")
-        case scala.util.Failure(e) => Store.error(e)
+          Toasts.show(if (s.fileCancel.v) s"取り込みを中止しました（${p.imported} 件は取り込み済み）" else s"${p.imported} 件を取り込みました")
+        case scala.util.Failure(e) => Toasts.error(e)
       }
       Store.changed(); loadImports(s)
     }
@@ -297,12 +269,12 @@ def skUrl(s: State) = s.integ.mapC(_.flatMap(_.skuakaUrl).getOrElse(""))
 def skAvailable(s: State) = s.integ.mapC(_.exists(_.skuakaUrl.isDefined))
 def skConnected(s: State) = s.integ.mapC(_.exists(_.skuakaConnected))
 def connectSkuaka(s: State): Unit =
-  Store.report(Api.put[IntegrationsDto]("/api/me/integrations/skuaka", TokenReq(s.skToken.v.trim).asJson)) { i =>
-    s.integ := Some(i); s.skToken := ""; Store.toast(s"${AppNames.nameOf("skuaka")} とつなぎました")
+  Toasts.report(Api.put[IntegrationsDto]("/api/me/integrations/skuaka", TokenReq(s.skToken.v.trim).asJson)) { i =>
+    s.integ := Some(i); s.skToken := ""; Toasts.show(s"${AppNames.nameOf("skuaka")} とつなぎました")
   }
 def disconnectSkuaka(s: State): Unit =
   Dialog.confirm(s"${AppNames.nameOf("skuaka")} との連携を解除しますか？（預かっているトークンを消します）", "解除") {
-    Store.report(Api.send(dom.HttpMethod.DELETE, "/api/me/integrations/skuaka")) { _ =>
+    Toasts.report(Api.send(dom.HttpMethod.DELETE, "/api/me/integrations/skuaka")) { _ =>
       Api.get[IntegrationsDto]("/api/me/integrations").foreach(i => s.integ := Some(i))
     }
   }
@@ -507,7 +479,7 @@ def port(f: ClientConfigDto => Option[Int]) = cfg.mapC(_.flatMap(f).map(_.toStri
             <label class="grow">メールアドレス（ユーザー名）<input type="email" v-model="s.imUser" placeholder="you@gmail.com" autocomplete="off"></label>
             <label class="grow">パスワード（アプリ パスワード）<input type="password" v-model="s.imPass" autocomplete="new-password"></label>
           </div>
-          <button type="submit" class="primary" :disabled="s.imBusy">{{ if (s.imBusy.v) "ログインを確かめています…" else "取り込みを始める" }}</button>
+          <button type="submit" class="primary" :disabled="s.imBusy.busy">{{ if (s.imBusy.busy.v) "ログインを確かめています…" else "取り込みを始める" }}</button>
         </form>
       </section>
 

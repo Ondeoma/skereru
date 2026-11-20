@@ -37,19 +37,12 @@ object Shortcuts {
     () => handlers = handlers -- keys.map(_._1)
   }
 
-  private def typing(e: dom.KeyboardEvent): Boolean = e.target match {
-    case el: dom.HTMLElement =>
-      val tag = el.tagName.toLowerCase
-      tag == "input" || tag == "textarea" || tag == "select" || el.isContentEditable
-    case _ => false
-  }
-
   private def go(path: String): Unit = Router.go(path)
 
   def install(): Unit = dom.document.addEventListener(
     "keydown",
     (e: dom.KeyboardEvent) =>
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && !typing(e) && Dialog.current.v.isEmpty) {
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && !Dom.isTyping(e) && Dialog.current.v.isEmpty) {
         val k = e.key
         if (pendingG) {
           pendingG = false

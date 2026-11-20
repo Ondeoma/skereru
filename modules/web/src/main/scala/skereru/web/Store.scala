@@ -7,9 +7,6 @@ import skereru.shared.*
 import scala.concurrent.Future
 import scala.scalajs.concurrent.JSExecutionContext.Implicits.queue
 import scala.scalajs.js
-import scala.util.{Failure, Success}
-
-final case class Toast(id: Int, text: String, error: Boolean, undo: Option[() => Unit], undoLabel: String = "元に戻す")
 
 /** 書きかけのメール（作成画面）. */
 final case class Draft(seq: Int, init: ComposeReq, minimized: Boolean = false, uploads: List[UploadDto] = Nil)
@@ -21,7 +18,6 @@ object Store {
   val config: RV[Option[ClientConfigDto]] = RV(None)
   val settings: RV[MailSettingsDto] = RV(MailSettingsDto.default)
   val mailboxes: RV[List[MailboxDto]] = RV(Nil)
-  val toasts: RV[List[Toast]] = RV(Nil)
 
   /** 変更があるたびに増える. 一覧・スレッドの画面はこれを監視して取り直す. */
   val tick: RV[Int] = RV(0)
@@ -32,7 +28,6 @@ object Store {
   /** 左のメニュー（スマートフォンでは開閉する）. */
   val nav: RV[Boolean] = RV(false)
 
-  private var toastSeq = 0
   private var draftSeq = 0
 
   def isAdmin = me.mapC(_.exists(_.isAdmin))
@@ -63,34 +58,6 @@ object Store {
 
   def boxLabel(b: MailboxDto): String = b.specialUse.map(SpecialUse.label).getOrElse(b.name)
 
-  // ---------------------------------------------------------------- トースト
-
-  def toast(text: String,
-            error: Boolean = false,
-            undo: Option[() => Unit] = None,
-            undoLabel: String = "元に戻す",
-            ms: Int = 0): Unit = {
-    toastSeq += 1
-    val t = Toast(toastSeq, text, error, undo, undoLabel)
-    toasts := (toasts.v :+ t).takeRight(4)
-    dom.window.setTimeout(
-      () => dismiss(t.id),
-      if (ms > 0) ms else if (error) 9000 else if (undo.isDefined) 8000 else 5000
-    )
-  }
-
-  def dismiss(id: Int): Unit = toasts := toasts.v.filterNot(_.id == id)
-
-  def error(e: Throwable): Unit = e match {
-    case ApiError(401, _) => ()
-    case other => toast(other.getMessage, error = true)
-  }
-
-  def report[A](f: Future[A])(ok: A => Unit): Unit = f.onComplete {
-    case Success(a) => ok(a)
-    case Failure(e) => error(e)
-  }
-
   // ---------------------------------------------------------------- 読み込み
 
   def loadMailboxes(): Future[List[MailboxDto]] = Api.mailboxes().map { b =>
@@ -116,22 +83,28 @@ object Store {
   /** スヌーズする（日時を選んでもらう）. 終わったら after. */
   def snooze(ids: List[java.util.UUID])(after: () => Unit): Unit =
     if (ids.nonEmpty) When.pick("スヌーズ（この日時まで一覧から隠し、受信トレイに戻します）") { t =>
-      report(Api.post[UpdatedDto]("/api/messages/snooze", io.circe.syntax.EncoderOps(SnoozeReq(ids, Some(t))).asJson)) {
+      Toasts.report(Api.post[UpdatedDto](
+        "/api/messages/snooze",
+        io.circe.syntax.EncoderOps(SnoozeReq(ids, Some(t))).asJson
+      )) {
         _ =>
-          toast(s"${When.label(t.toDate)} までスヌーズしました", undo = Some(() => unsnooze(ids)))
+          Toasts.withAction(s"${When.label(t.toDate)} までスヌーズしました", "元に戻す", Some(8000))(unsnooze(ids))
           changed(); after()
       }
     }
 
   def unsnooze(ids: List[java.util.UUID]): Unit =
-    report(Api.post[UpdatedDto]("/api/messages/snooze", io.circe.syntax.EncoderOps(SnoozeReq(ids, None)).asJson)) { _ =>
-      toast("スヌーズを解除しました"); changed()
+    Toasts.report(Api.post[UpdatedDto](
+      "/api/messages/snooze",
+      io.circe.syntax.EncoderOps(SnoozeReq(ids, None)).asJson
+    )) { _ =>
+      Toasts.show("スヌーズを解除しました"); changed()
     }
 
   /** 予約した送信を取り消して、作成画面に戻す. */
   def unschedule(id: java.util.UUID): Unit =
-    report(Api.post[ScheduledCancelDto](s"/api/scheduled/$id/cancel")) { c =>
-      compose(c.req, c.uploads); toast("送信を取り消しました"); changed()
+    Toasts.report(Api.post[ScheduledCancelDto](s"/api/scheduled/$id/cancel")) { c =>
+      compose(c.req, c.uploads); Toasts.show("送信を取り消しました"); changed()
     }
 
   def newMail(to: List[String] = Nil): Unit = {
@@ -192,37 +165,9 @@ object Store {
 
 }
 
-/** DOM のイベント・クリップボードの補助. */
-object Dom {
-  def value(e: dom.Event): String = e.target.asInstanceOf[js.Dynamic].value.asInstanceOf[String]
-  def checked(e: dom.Event): Boolean = e.target.asInstanceOf[dom.HTMLInputElement].checked
-  def copy(text: String, message: String = "コピーしました"): Unit = {
-    dom.window.navigator.clipboard.writeText(text)
-    Store.toast(message)
-  }
-}
-
-/** 画面内のダイアログ（ブラウザ標準の confirm・prompt の代わり）. 表示は parts/DialogHost.st. */
-final case class DialogReq(message: String,
-                           okLabel: String,
-                           danger: Boolean,
-                           input: Option[RV[String]],
-                           choices: List[(String, String)],
-                           cancel: Boolean,
-                           onOk: String => Unit,
-                           onCancel: () => Unit)
-
 /** この端末だけの表示の設定（localStorage. 使えないときは既定値）. */
 object Prefs extends sbirds.web.LocalPrefs("skereru")
 
 /** 画面の色（自動 = OS の設定、ライト、ダーク）. */
 object Theme
   extends sbirds.web.ThemeSwitch(Prefs, List("system" -> "🖥 自動", "light" -> "☀️ ライト", "dark" -> "🌙 ダーク"))
-
-/** オートコンプリート（parts/Combo.st）の選択肢. */
-final case class Opt(value: String, label: String, icon: String = "", color: String = "", hint: String = "")
-
-object Opt {
-  def of(xs: List[(String, String)]): List[Opt] = xs.map((v, l) => Opt(v, l))
-  def names(xs: List[String]): List[Opt] = xs.map(x => Opt(x, x))
-}

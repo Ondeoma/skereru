@@ -6,7 +6,7 @@ import skereru.shared.*
 import scala.scalajs.concurrent.JSExecutionContext.Implicits.queue
 
 // 予約済みの送信（送る前なら取り消して、作成画面に戻せる）
-case class State(list: RV[List[ScheduledDto]] = RV(Nil), loaded: RV[Boolean] = RV(false), timer: RV[Option[Int]] = RV(None))
+case class State(list: RV[List[ScheduledDto]] = RV(Nil), loaded: RV[Boolean] = RV(false))
 
 def initState() = State()
 
@@ -15,11 +15,10 @@ def load(s: State): Unit = Api.get[List[ScheduledDto]]("/api/scheduled").foreach
 def mounted(s: State): Unit = {
   pageTitle("予約済み")
   load(s)
-  // 送られたものを一覧から消すため、ときどき取り直す
-  s.timer := Some(dom.window.setInterval(() => load(s), 15000))
+  // 送られたものを一覧から消すため、ときどき取り直す（片付けると自動で止まる）
+  useInterval(15000)(load(s))
+  ()
 }
-
-def unmounted(s: State): Unit = s.timer.v.foreach(dom.window.clearInterval)
 
 def cancel(s: State, d: ScheduledDto): Unit = { Store.unschedule(d.id); dom.window.setTimeout(() => load(s), 800) }
 

@@ -40,6 +40,7 @@ def mounted(s: State): Unit = {
     AppNames.set(me.appNames)
     Observe.setUser(me.id.toString)
     Store.loadSettings()
+    Store.loadSkawau()
     Store.loadMailboxes().foreach(_ => s.ready := true)
     Store.connect()
   }

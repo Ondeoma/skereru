@@ -17,6 +17,11 @@ const COMMANDS = {
   setLink: (c, href) => c.extendMarkRange('link').setLink({ href }),
   unsetLink: (c) => c.extendMarkRange('link').unsetLink(),
   clearFormat: (c) => c.unsetAllMarks().clearNodes(),
+  // リンクを入れる（arg は {"href", "text"} の JSON）。後ろに空白を足して、続けて打つ文字がリンクにならないようにする
+  insertLink: (c, arg) => {
+    const { href, text } = JSON.parse(arg)
+    return c.insertContent([{ type: 'text', text, marks: [{ type: 'link', attrs: { href } }] }, { type: 'text', text: ' ' }])
+  },
 }
 
 /** el に Tiptap のエディタを作る。opts: html・placeholder・onUpdate・onSelectionUpdate。 */

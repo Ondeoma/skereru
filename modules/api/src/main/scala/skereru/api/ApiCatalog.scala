@@ -40,10 +40,30 @@ object ApiCatalog {
     Endpoint(
       "POST",
       "/api/filters",
-      "規則を追加 {name, enabled, matchAll, conditions: [{field: from|to|cc|recipient|subject|body|list-id|header, op: contains|not_contains|equals|starts_with|ends_with, value, header?}], actions: [{kind: move|mark_read|flag|delete|forward|not_spam|stop, arg?}]}"
+      "規則を追加 {name, enabled, matchAll, conditions: [{field: from|to|cc|recipient|subject|body|list-id|header, op: contains|not_contains|equals|starts_with|ends_with, value, header?}], actions: [{kind: move|mark_read|flag|delete|forward|not_spam|notify|save_skawau|stop, arg?}]}（notify の arg は通知先の ID）"
     ),
     Endpoint("PUT", "/api/filters/{ruleId}", "規則を変える"),
     Endpoint("DELETE", "/api/filters/{ruleId}", "規則を削除"),
+    Endpoint("GET", "/api/me/notify-targets", "受信の通知先（stui・受信 Webhook・署名付きの Webhook）"),
+    Endpoint(
+      "POST",
+      "/api/me/notify-targets",
+      "通知先を作る {name, kind: stui|chat_hook|webhook, channelId?（stui. なければ自分への DM）, channelName?, url?（chat_hook・webhook）, allInbox, enabled}"
+    ),
+    Endpoint("PUT", "/api/me/notify-targets/{targetId}", "通知先を変える（種類は変えられない）"),
+    Endpoint("DELETE", "/api/me/notify-targets/{targetId}", "通知先を削除"),
+    Endpoint("POST", "/api/me/notify-targets/{targetId}/test", "通知先に試しの通知を送る"),
+    Endpoint("GET", "/api/integrations/{stui|skawau}", "兄弟のサービスとの連携の状態"),
+    Endpoint("GET", "/api/integrations/stui/channels", "通知先に選べる stui のチャンネル"),
+    Endpoint("GET", "/api/integrations/skawau/browse?folder=", "skawau のフォルダの中身（folder を省くと自分のルート）"),
+    Endpoint("GET", "/api/integrations/skawau/search?q=", "skawau のファイルを名前で探す"),
+    Endpoint("POST", "/api/integrations/skawau/attach", "skawau のファイルを添付にする {ids}（返ったアップロードの ID を送信の uploadIds に入れる）"),
+    Endpoint("POST", "/api/integrations/skawau/links", "skawau のファイル・フォルダの URL {ids}"),
+    Endpoint(
+      "POST",
+      "/api/integrations/skawau/save",
+      "メールの添付を skawau に保存 {messageId, parts（空ならすべて）, folderId?（省くと「メールの添付」）}"
+    ),
     Endpoint("GET", "/api/admin/stats", "統計（管理者）"),
     Endpoint("GET", "/api/admin/domains", "ドメインの一覧（管理者）"),
     Endpoint("POST", "/api/admin/domains", "ドメインを追加（管理者） {name, autoProvision}"),

@@ -16,6 +16,9 @@ import scala.concurrent.duration.*
 /** 設定は環境変数から読む（一覧は README）。 */
 object Config {
 
+  private def hostOf(url: String): Option[String] =
+    scala.util.Try(java.net.URI.create(url).getHost).toOption.flatMap(Option(_)).map(_.toLowerCase)
+
   /** ポート（"off" で待ち受けない）。 */
   private def port(name: String, default: Int): Option[Int] = opt(name) match {
     case Some(v) if v.equalsIgnoreCase("off") => None
@@ -104,6 +107,14 @@ object Config {
           "SKUAKA_URL は https:// で始めてください"
         )
       )
+      // stui との連携（STUI_URL・STUI_CLIENT_ID・STUI_CLIENT_SECRET。サーバーから呼ぶ URL は STUI_INTERNAL_URL）
+      stui <- sbirds.links.LinkConfig.fromEnv("STUI", "stui", "read write")
+      // skawau との連携（SKAWAU_URL・SKAWAU_CLIENT_ID・SKAWAU_CLIENT_SECRET。サーバーから呼ぶ URL は SKAWAU_INTERNAL_URL）
+      skawau <- sbirds.links.LinkConfig.fromEnv("SKAWAU", "skawau", "read write")
+      // 利用者が決めた通知先（受信 Webhook・Webhook）へは、外のアドレスだけに送る。内部の相手は許可リストで許す（stui は自動で足す）
+      notifyPolicy <- sbirds.net.NetGuard.Policy.allowList(
+        list("NOTIFY_ALLOW_INTERNAL") ++ List("STUI_URL", "STUI_INTERNAL_URL").flatMap(opt).flatMap(hostOf)
+      ).left.map(e => s"NOTIFY_ALLOW_INTERNAL: $e")
       clients <- oauthClients
       sts = opt("MTA_STS_MODE").getOrElse("testing").toLowerCase
       _ <- Either.cond(Set("testing", "enforce", "none")(sts), (), "MTA_STS_MODE は testing・enforce・none のどれかです")
@@ -184,6 +195,9 @@ object Config {
         tlsKey = opt("TLS_KEY"),
         stsMode = sts,
         skuakaUrl = skuaka,
+        stui = stui,
+        skawau = skawau,
+        notifyPolicy = notifyPolicy,
         nodeId = opt("NODE_ID").getOrElse(InetAddress.getLocalHost.getHostName + "-" +
           java.util.UUID.randomUUID().toString.take(8))
       )

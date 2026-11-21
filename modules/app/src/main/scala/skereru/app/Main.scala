@@ -42,7 +42,13 @@ final case class AppConfig(
   stsMode: String,
   nodeId: String,
   /** 兄弟のカレンダー（skuaka）の URL。招待をカレンダーに足すときに使う（管理者が決める）。 */
-  skuakaUrl: Option[String] = None)
+  skuakaUrl: Option[String] = None,
+  /** 兄弟のチャット（stui）との OAuth 連携。受信の通知を stui に送る。 */
+  stui: Option[sbirds.links.LinkConfig] = None,
+  /** 兄弟のファイル共有（skawau）との OAuth 連携。添付を skawau から付ける・skawau に保存する。 */
+  skawau: Option[sbirds.links.LinkConfig] = None,
+  /** 利用者が決めた通知先（受信 Webhook・Webhook）へ送ってよい宛先（NOTIFY_ALLOW_INTERNAL）。 */
+  notifyPolicy: sbirds.net.NetGuard.Policy = sbirds.net.NetGuard.Policy.publicOnly)
 
 object Main extends IOApp.Simple {
 
@@ -128,10 +134,29 @@ object Main extends IOApp.Simple {
           }
         // 受信トレイに届いた新着は、この端末で受け取る設定（PWA のプッシュ通知）にしていれば、ブラウザを閉じていても知らせる
         _ = delivery.onInboxMail = (uid, id, root) => push.send(uid, newMailPush(id, root))
+        // stui・Webhook への受信の通知。利用者が決めた URL へは、確かめた IP にそのままつなぐクライアントで送る
+        notifyStore = new NotifyStore(xa)
+        hookHttp <- sbirds.net.NetGuard.client(cfg.notifyPolicy, timeout = 30.seconds).map(HttpClientTelemetry(_))
+        tokens = new sbirds.links.IntegrationTokenStore(xa)
+        stuiLink = cfg.stui.map(c => new sbirds.links.LinkClient(c, http, tokens, box))
+        skawauLink = cfg.skawau.map(c => new sbirds.links.LinkClient(c, http, tokens, box))
+        stui = stuiLink.map(new sbirds.links.StuiClient(_))
+        notifier = new NotifyService(notifyStore, stui, hookHttp, cfg.notifyPolicy, box, cfg.api.publicUrl)
+        // skawau（ファイル共有）: 添付を skawau から付ける・skawau に保存する（規則の「添付を skawau に保存」は保存待ちに積む）
+        skawau = skawauLink.map(l => new SkawauService(l, mailSvc, new SkawauSaveStore(xa), cfg.api.maxUploadBytes))
+        _ = delivery.onMailStored = (uid, id, root, box, inbox, o) =>
+          notifier.mailArrived(uid, id, root, box, inbox, o.notifyTargets) *>
+            skawau.traverse_(_.enqueue(uid, id)).whenA(o.saveAttachments)
         _ <- MailServers.start(MailServers.Deps(cfg.mail, Some(tls), delivery, mailAuth, mail, blobs, queue, dns, log))
         loops = List[IO[Unit]](
           worker.loop,
           worker.expireLoop,
+          // stui・Webhook への通知の送信待ち（SKIP LOCKED で分担する）
+          notifier.loop,
+          notifier.purgeLoop,
+          // 規則の「添付を skawau に保存」の保存待ち
+          skawau.fold(IO.never[Unit])(_.loop),
+          skawau.fold(IO.never[Unit])(_.purgeLoop),
           // Gmail などからの IMAP の取り込み（待っているものを、どれかのノードが引き受ける）
           importer.loop(cfg.nodeId),
           // 予約送信（時刻が来たもの）とスヌーズ（時刻が来たもの）。行の取り合いは SKIP LOCKED で、どのノードでも動かしてよい
@@ -159,7 +184,7 @@ object Main extends IOApp.Simple {
           ) <+>
             new AuthRoutes(oidc, users, adminSvc, sess, cfg.api, cfg.mail).routes <+>
             new OAuthRoutes(new OAuthStore(xa), users, sess, cfg.api).routes <+>
-            new MeRoutes(users, domains, mail, queue, sess, cfg.mail).routes <+>
+            new MeRoutes(users, domains, mail, queue, sess, cfg.mail, notifyStore).routes <+>
             new AvatarRoutes(new AvatarStore(xa), sess).routes <+>
             new MailRoutes(mailSvc, mail, schedules, sess, cfg.api, changes).routes <+>
             new ImportRoutes(importer, imports, mail, blobs, sess).routes <+>
@@ -167,7 +192,15 @@ object Main extends IOApp.Simple {
             new AdminRoutes(adminSvc, users, domains, mail, queue, delivery, dmarc, sess).routes <+>
             new WellKnownRoutes(domains, cfg.mail, cfg.stsMode).routes <+>
             RumRoutes.routes <+>
-            new PushRoutes(pushStore, push, sess).routes
+            new PushRoutes(pushStore, push, sess).routes <+>
+            new NotifyRoutes(notifier, stui, sess).routes <+>
+            new SkawauRoutes(skawau, sess).routes <+>
+            new LinkRoutes(
+              (stuiLink.map("stui" -> _) ++ skawauLink.map("skawau" -> _)).toMap,
+              cfg.api.publicUrl,
+              sess,
+              (p, uid) => if p == "skawau" then skawau.flatTraverse(_.lastFailure(uid)) else IO.pure(None)
+            ).routes
         app = rest <+> new McpRoutes(rest, sess, cfg.api.publicUrl, cfg.api.version).routes
         // ビルド済みの画面の配信。存在しないパスは index.html（SPA）
         pages = cfg.staticDir.fold(app)(d =>

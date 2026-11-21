@@ -112,3 +112,25 @@
 - 会議の招待（`text/calendar`・`.ics`）は、スレッドの画面でカードにし、参加・仮承諾・辞退を iMIP の REPLY で主催者に返す。
 - skuaka（カレンダー）の URL は管理者が `SKUAKA_URL` で決める（利用者が URL を決められると、サーバーから任意の場所へつながせてしまう）。
   利用者は skuaka の API トークンを設定に入れ（暗号化して保存）、招待を skuaka の予定として追加できる。
+
+### ファイル共有（skawau）
+
+- 本人が OAuth（`sbirds.links.LinkClient`. スコープ `read write`）で連携したトークンで、本人の権限で skawau を使う。連携の手続き（connect・callback・解除）は stui と共通（`LinkRoutes`）。
+- 添付する: 選んだファイルを skawau から取ってきて（`GET /api/files/{id}/content`）、ふつうの添付と同じアップロードにする。フォルダと、添付の上限（`MAX_UPLOAD_MB`）を超えるものは断り、リンクを勧める。
+- リンクを入れる: `{SKAWAU_URL}/view/{ID}`（フォルダは `/files/{ID}`）を本文に入れる。相手は skawau の権限で開く（公開リンクは作らない）。
+- 保存する: 添付（本文に埋め込んだ画像を除く）を `PUT /api/files/{フォルダ}/upload?conflict=rename` で置く。既定はルートの下の「メールの添付」（`path` で skawau が作る）。
+  振り分けの規則の処理「添付を skawau に保存」（`save_skawau`）は、配送の後に `skawau_save` に積み、ワーカーが保存する（SKIP LOCKED で分担. つながらないときは間を空けて最大 8 回）。
+  連携が切れていたなど、送り直しても無駄な失敗は、設定の「連携」に「最近の失敗」として出す。
+
+### 受信の通知（stui・Webhook）
+
+- 通知先（`notify_target`）は利用者ごとに作る。種類は3つ:
+  - `stui`: OAuth（認可コード + PKCE. `sbirds.links.LinkClient`）で連携した本人のトークン（APP_SECRET で暗号化して `integration_token` に保存）で、
+    stui の `POST /api/apps/notify` を呼ぶ。チャンネルを選ばなければ、stui のボット（skereru）から本人への DM。
+  - `chat_hook`: stui・Slack・Mattermost の受信 Webhook に `{"text", "username"}` を送る。
+  - `webhook`: イベント `mail.received` の JSON を、`X-Skereru-Signature: sha256=…`（本文の HMAC-SHA256. 鍵は通知先ごとに作り、暗号化して保存）付きで送る。
+- 送る範囲は、通知先の「受信トレイの新着すべて」（迷惑メール・既読にする規則のものを除く）と、振り分けの規則の処理「通知先に知らせる」（`notify`. 受信トレイ以外へ移したメールにも使える）。
+  迷惑メール・ゴミ箱に入れたメールは知らせない。規則で選べる通知先は本人のものだけ（保存のときと配送のときの両方で確かめる）。
+- 送るのは差出人・件名・メールボックス・リンクだけで、本文は送らない（チャンネルの全員に見えるため）。stui に送る文の差出人・件名は、Markdown の記号をエスケープする（外の人が書式やリンクを作れないように）。
+- 配送の後に `notify_delivery` に積み、ワーカーが送る（SKIP LOCKED で複数ノードが分担。失敗は 30 秒から倍々で最大 8 回まで送り直す）。
+  送れなかった理由は通知先の `last_error` に残し、設定の画面に出す。利用者が決めた URL へは、確かめた IP にそのままつなぐクライアント（`NetGuard.client`）で送る。

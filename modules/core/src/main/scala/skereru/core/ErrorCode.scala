@@ -3,7 +3,7 @@ package skereru.core
 /**
  * skereru のエラーコード（すべてのエラーをここにまとめる）.
  * 1xxx: 認証・共通（10xx: 要求・APIキー, 11xx: ログイン）, 2xxx: メール（20xx: メッセージ, 21xx: メールボックス, 22xx: 送信・予約）,
- * 3xxx: 自分の設定（アイコン・プッシュ通知・規則・アプリパスワード）, 4xxx: 招待・カレンダー（41xx: skuaka との連携）,
+ * 3xxx: 自分の設定（アイコン・プッシュ通知・規則・アプリパスワード）, 4xxx: 招待・連携（41xx: skuaka, 42xx: stui・通知先・連携の手続き, 43xx: skawau）,
  * 5xxx: 取り込み, 6xxx: 管理（60xx: ドメイン・アドレス・ユーザー, 61xx: エージェント, 62xx: DMARC, 63xx: メールソフトの設定）,
  * 9xxx: サーバー内部・バックグラウンドの処理（90xx: 起動・ヘルスチェック, 91xx: 定期処理, 92xx: 配送）.
  * IMAP・POP3・SMTP・OAuth の応答はそれぞれのプロトコルの形のまま（ここのコードは HTTP の API とログ用）.
@@ -85,6 +85,25 @@ enum ErrorCode(val code: String, val status: Int, val message: String) extends s
   case SkuakaRequestFailed extends ErrorCode("SKERERU-4103", 400, "skuaka との連携に失敗しました")
   case SkuakaNotLinked extends ErrorCode("SKERERU-4104", 400, "skuaka と連携していません")
   case SkuakaNotConnected extends ErrorCode("SKERERU-4105", 400, "設定の「連携」で skuaka につないでください")
+  case StuiNotConfigured extends ErrorCode("SKERERU-4201", 400, "このサーバーでは stui と連携できません（管理者が STUI_URL などを設定していません）")
+  case StuiNotConnected extends ErrorCode("SKERERU-4202", 400, "設定の「連携」で stui と連携してください")
+  case StuiRequestFailed extends ErrorCode("SKERERU-4203", 502, "stui との通信に失敗しました")
+  case LinkStateInvalid extends ErrorCode("SKERERU-4204", 400, "連携の手続きが正しくありません。もう一度やり直してください")
+  case LinkNotConfigured extends ErrorCode("SKERERU-4205", 400, "このサーバーでは、このサービスと連携できません（管理者が設定していません）")
+  case NotifyTargetNotFound extends ErrorCode("SKERERU-4211", 404, "通知先が見つかりません")
+  case NotifyTargetInvalid extends ErrorCode("SKERERU-4212", 400, "通知先の設定が正しくありません")
+  case NotifyTargetTooMany extends ErrorCode("SKERERU-4213", 400, "通知先が多すぎます。使っていないものを削除してください")
+  case NotifyUrlRejected extends ErrorCode("SKERERU-4214", 400, "この URL には送れません")
+  case NotifyTestFailed extends ErrorCode("SKERERU-4215", 502, "試しの通知を送れませんでした")
+  case SkawauNotConfigured
+    extends ErrorCode("SKERERU-4301", 400, "このサーバーでは skawau と連携できません（管理者が SKAWAU_URL などを設定していません）")
+  case SkawauNotConnected extends ErrorCode("SKERERU-4302", 400, "設定の「連携」で skawau と連携してください")
+  case SkawauRequestFailed extends ErrorCode("SKERERU-4303", 502, "skawau との通信に失敗しました")
+  case SkawauFileNotFound extends ErrorCode("SKERERU-4304", 404, "skawau のファイルが見つかりません（消されたか、見る権限がありません）")
+  case SkawauFileTooLarge extends ErrorCode("SKERERU-4305", 413, "ファイルが大きすぎて添付できません。リンクを入れてください")
+  case SkawauFolderNotAllowed extends ErrorCode("SKERERU-4306", 400, "フォルダは添付できません。リンクを入れてください")
+  case SkawauNoAttachments extends ErrorCode("SKERERU-4307", 400, "保存する添付ファイルがありません")
+  case SkawauTooMany extends ErrorCode("SKERERU-4308", 400, "一度に扱えるファイルが多すぎます")
   case ImportAlreadyRunning extends ErrorCode("SKERERU-5001", 409, "ほかの取り込みが進行中です。終わるか、取り消してから始めてください")
   case ImportFileNameMissing extends ErrorCode("SKERERU-5002", 400, "ファイル名がありません")
   case ImportNotFound extends ErrorCode("SKERERU-5003", 404, "取り込みが見つかりません")
@@ -130,5 +149,8 @@ enum ErrorCode(val code: String, val status: Int, val message: String) extends s
   case ForwardFailed extends ErrorCode("SKERERU-9203", 500, "メールの転送に失敗しました")
   case VacationReplyFailed extends ErrorCode("SKERERU-9204", 500, "自動返信に失敗しました")
   case DmarcReportFailed extends ErrorCode("SKERERU-9205", 500, "DMARC の集計レポートの処理に失敗しました")
+  case NotifyWorkerFailed extends ErrorCode("SKERERU-9207", 500, "通知（stui・Webhook）の送信の処理に失敗しました")
+  case NotifyPurgeFailed extends ErrorCode("SKERERU-9208", 500, "送り終えた通知の削除に失敗しました")
+  case SkawauSaveWorkerFailed extends ErrorCode("SKERERU-9209", 500, "添付の skawau への保存の処理に失敗しました")
   case DmarcReportUnreadable extends ErrorCode("SKERERU-9206", 400, "DMARC の集計レポートを読めません")
 }

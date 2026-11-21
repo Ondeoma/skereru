@@ -20,13 +20,19 @@ skereru は、SMTP・IMAP・POP3 を備えたメールサーバーです。Gmail
 - **アイコン**: 設定の画面で画像を選ぶと、中央を正方形に切り抜いて保存する（PNG・JPEG・GIF・WebP。消すと IdP（sruru など）の画像に戻る）
 - **迷惑メールの対策**: SPF・DKIM・DMARC の検証、DNSBL、逆引き、ヘッダー・本文・添付の規則、ベイズ分類（ユーザーごと・全体で学習。
   「迷惑メール」への移動・報告で学習）、ClamAV（任意）、グレイリスト（任意）、自ドメインのなりすましの検出、点数による振り分け・受信拒否
-- **振り分け・自動化**: 規則（差出人・宛先・件名・本文・List-Id・任意のヘッダー → 移動・既読・スター・ゴミ箱・転送・迷惑メールにしない）、
+- **振り分け・自動化**: 規則（差出人・宛先・件名・本文・List-Id・任意のヘッダー → 移動・既読・スター・ゴミ箱・転送・迷惑メールにしない・通知先に知らせる・添付を skawau に保存）、
   不在の自動返信（期間・やりとりした相手だけ・同じ相手には4日に1回）、許可/拒否する差出人
 - **送信**: DKIM 署名（RSA-SHA256）、転送するメールへの ARC の封印（転送先で受信時の認証の結果を引き継ぐ）、MX への直接配送（STARTTLS・TLS の必須化・証明書の検証は設定可能）または中継サーバー経由、再送（指数的に間隔を延ばす）、
   配送できなかったときの通知（DSN）
 - **取り込み**: Gmail などのメールを IMAP で取り込む（サーバーが裏で進める。Gmail はアプリ パスワード。ラベルはフォルダに、「すべてのメール」だけにあるものはアーカイブに）、
   Google Takeout の mbox・ほかのメールソフトの mbox・.eml のアップロード（ラベル・スター・未読を引き継ぐ）。同じメールは二重に取り込まない。
   mbox への書き出し（フォルダ・スター・未読は Takeout と同じ形で書くので、取り込みで戻せる）
+- **受信の通知**: 新しいメールの差出人・件名・リンクを、stui（チャット）の自分への DM・チャンネル（OAuth で連携）、
+  stui・Slack・Mattermost の受信 Webhook、署名（HMAC-SHA256）付きの Webhook に送る（本文は送らない）。
+  受信トレイの新着すべてか、振り分けの規則で選んだメールだけかを、通知先ごとに選べる
+- **ファイル共有（skawau）との連携**: メールを書くとき skawau のファイルを選んで添付する・リンクを入れる。
+  受け取った・送ったメールの添付を skawau に保存する（保存先のフォルダを選べる。既定は「メールの添付」。同じ名前は名前を変えて両方残す）。
+  振り分けの規則の処理「添付を skawau に保存」で自動でも保存する
 - **API・AI**: REST API、MCP（`search_messages`・`get_message`・`get_thread`・`send_message`・`update_messages`・`list_mailboxes`・`call_api` など）
 - **冗長化**: アプリはステートレスで複数ノードで動く（送信待ちは SKIP LOCKED で分担、定期処理はリースで1ノードだけ）。
   PostgreSQL は Patroni、メッセージの本体は PostgreSQL か S3 互換ストレージ。HAProxy は PROXY プロトコルで本当の接続元を渡す
@@ -131,6 +137,9 @@ java -cp 'dist/lib/*' skereru.app.Main
 | `SKORIMAKO_RUM_TOKEN` / `SKORIMAKO_RUM_URL` / `SKORIMAKO_RUM_SAMPLE_RATE` | 画面のブラウザの観測（skorimako の RUM）。トークンは skorimako の管理の画面で登録したアプリのもの。URL を省略すると `SKORIMAKO_URL` |
 | `VAPID_SUBJECT` | プッシュ通知（PWA）の連絡先（`mailto:…` か `https://…`。省略すると `PUBLIC_URL`）。VAPID の鍵は初回の起動で作って DB に保存する |
 | `SKUAKA_URL` | 兄弟のカレンダー skuaka の URL（`https://`）。設定すると、会議の招待を skuaka に追加できる（利用者は設定の「連携」で skuaka の API トークンを入れる） |
+| `STUI_URL`・`STUI_CLIENT_ID`・`STUI_CLIENT_SECRET` | 兄弟のチャット stui との連携（3つとも設定したときだけ）。利用者は設定の「連携」で stui と連携し、受信の通知を stui の DM・チャンネルに送れる。stui の `OAUTH_CLIENTS` に skereru を登録する（`redirectUri` は `{PUBLIC_URL}/api/integrations/stui/callback`、`scopes` は `["read","write"]`）。`STUI_INTERNAL_URL` はサーバーから呼ぶ URL（省けば `STUI_URL`） |
+| `SKAWAU_URL`・`SKAWAU_CLIENT_ID`・`SKAWAU_CLIENT_SECRET` | 兄弟のファイル共有 skawau との連携（3つとも設定したときだけ）。利用者は設定の「連携」で skawau と連携し、skawau のファイルを添付する・リンクを入れる・添付を skawau に保存する。skawau の `OAUTH_CLIENTS` に skereru を登録する（`redirectUri` は `{PUBLIC_URL}/api/integrations/skawau/callback`、`scopes` は `["read","write"]`）。`SKAWAU_INTERNAL_URL` はサーバーから呼ぶ URL（省けば `SKAWAU_URL`） |
+| `NOTIFY_ALLOW_INTERNAL` | 利用者が決めた通知先（受信 Webhook・Webhook）のうち、内部のアドレスでも送ってよい相手（カンマ区切りの CIDR・IP・ホスト名）。既定は外のアドレスだけ。`STUI_URL`・`STUI_INTERNAL_URL` のホストは自動で許す |
 | `OAUTH_CLIENTS` | skereru を OAuth（認可コード + PKCE）で使う外部のサービス（skakapo など）。JSON の配列: `[{"id":"skakapo","secret":"…（16文字以上）","redirectUri":"https://…/api/connections/callback","name":"skakapo","scopes":["read","write","send"]}]`。`scopes` はそのクライアントが求めてよい範囲（read・write・send。省くと read だけ）。入口は `/oauth/authorize`・`/oauth/token`（クライアントの認証は Basic。アクセストークンは1時間で、refresh_token で更新）・`/oauth/revoke`。利用者は設定の「APIキー・MCP」の「連携しているサービス」で確認・取り消しができる |
 | `DEV_LOGIN` / `ALLOW_PLAIN_AUTH` | 開発用のログイン・暗号化されていない接続での認証（開発用。本番では使わない） |
 
@@ -193,7 +202,7 @@ claude mcp add --transport http skereru https://mail.example.com/mcp --header "A
   DKIM の秘密鍵も暗号化して保存
 - **監査**: ログイン・失敗・ロック・APIキー/アプリパスワードの発行と失効・管理の操作を監査ログに残す
 - **外への接続**: 外への送信・IMAP の取り込みは、接続先が内部のアドレス（プライベート・ループバック・予約など）ならつながず、確かめた IP に固定してつなぐ
-  （DNS リバインディング対策）。skuaka の URL は管理者だけが決める
+  （DNS リバインディング対策）。skuaka・stui・skawau の URL は管理者だけが決める。利用者が決めた通知先の URL も、送るたびに確かめて内部へは送らない（`NOTIFY_ALLOW_INTERNAL` で許した相手を除く）
 - **MCP**: メールの本文に書かれた指示で操作されないよう、MCP からは振り分けの規則・個人の設定・管理の API を変えられない（読むだけ）
 - **DoS 対策**: 接続数（IP・/64・/48 ごと）、認証前のやりとりの時間、DATA に使うメモリと時間、MIME の部品数、検索の語の数、SSE の同時接続に上限。
   計算量が入力の二乗になる正規表現を使わない

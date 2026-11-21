@@ -5,13 +5,15 @@ import skereru.shared.*
 /** 受信したメッセージに振り分けの規則を当てはめる。 */
 object Rules {
 
-  /** 規則の結果（移動先の名前・既読・スター・転送先・迷惑メールにしないか）。 */
+  /** 規則の結果（移動先の名前・既読・スター・転送先・迷惑メールにしないか・知らせる通知先の ID・添付を skawau に保存するか）。 */
   final case class Outcome(moveTo: Option[String],
                            markRead: Boolean,
                            flag: Boolean,
                            trash: Boolean,
                            forwards: List[String],
-                           notSpam: Boolean) {
+                           notSpam: Boolean,
+                           notifyTargets: List[String] = Nil,
+                           saveAttachments: Boolean = false) {
     def merge(o: Outcome): Outcome =
       Outcome(
         o.moveTo.orElse(moveTo),
@@ -19,7 +21,9 @@ object Rules {
         flag || o.flag,
         trash || o.trash,
         forwards ++ o.forwards,
-        notSpam || o.notSpam
+        notSpam || o.notSpam,
+        (notifyTargets ++ o.notifyTargets).distinct,
+        saveAttachments || o.saveAttachments
       )
   }
 
@@ -80,6 +84,9 @@ object Rules {
               case RuleAction.Delete => o.copy(trash = true)
               case RuleAction.Forward => o.copy(forwards = o.forwards ++ a.arg.map(_.trim).filter(Address.valid).toList)
               case RuleAction.NotSpam => o.copy(notSpam = true)
+              case RuleAction.SaveSkawau => o.copy(saveAttachments = true)
+              case RuleAction.Notify =>
+                o.copy(notifyTargets = o.notifyTargets ++ a.arg.map(_.trim).filter(_.nonEmpty).toList)
               case _ => o
             }
         }
@@ -100,7 +107,7 @@ object Rules {
     else if r.actions.isEmpty then Left("処理を1つ以上指定してください")
     else if r.actions.exists(a => !RuleAction.all.contains(a.kind)) then Left("処理の種類が正しくありません")
     else if r.actions.exists(a => RuleAction.needsArg(a.kind) && a.arg.forall(_.trim.isEmpty)) then
-      Left("移動先・転送先を指定してください")
+      Left("移動先・転送先・通知先を指定してください")
     else if r.actions.exists(a => a.kind == RuleAction.Forward && !a.arg.exists(x => Address.valid(x.trim))) then
       Left("転送先のメールアドレスが正しくありません")
     else Right(r.copy(name = r.name.trim.take(100)))

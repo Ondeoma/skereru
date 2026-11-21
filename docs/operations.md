@@ -23,6 +23,11 @@
 6. サーバーの IP の逆引き（PTR）を `MAIL_HOSTNAME` にしてもらう（プロバイダー・クラウドの設定）。逆引きがないと相手に迷惑メール扱いされやすい。
 7. 「管理 → ユーザー」でユーザーを作る（またはドメインの「自動作成」を有効にする）。
 8. （任意）カレンダーの skuaka と連携するときは `SKUAKA_URL` を設定する。利用者は「設定 → 連携」で skuaka の API トークンを入れる。
+9. （任意）チャットの stui に受信を知らせるときは、stui の `OAUTH_CLIENTS` に skereru を登録し（`redirectUri` は `https://<PUBLIC_URL>/api/integrations/stui/callback`、`scopes` は `["read","write"]`）、
+   skereru に `STUI_URL`・`STUI_CLIENT_ID`・`STUI_CLIENT_SECRET` を設定する。利用者は「設定 → 連携」で stui と連携し、通知先（DM・チャンネル）を作る。
+   受信 Webhook・Webhook の通知先は、連携しなくても使える（内部の宛先へは `NOTIFY_ALLOW_INTERNAL` で許したときだけ送る）。
+10. （任意）ファイル共有の skawau と連携するときは、skawau の `OAUTH_CLIENTS` に skereru を登録し（`redirectUri` は `https://<PUBLIC_URL>/api/integrations/skawau/callback`、`scopes` は `["read","write"]`）、
+   skereru に `SKAWAU_URL`・`SKAWAU_CLIENT_ID`・`SKAWAU_CLIENT_SECRET` を設定する。利用者は「設定 → 連携」で skawau と連携する。
 
 ### 本番の前に確かめること（セキュリティ）
 

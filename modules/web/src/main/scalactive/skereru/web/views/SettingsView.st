@@ -48,9 +48,14 @@ case class State(tab: RV[String] = RV("general"),
                  dropping: RV[Boolean] = RV(false),
                  exportBox: RV[String] = RV(""),
                  integ: RV[Option[IntegrationsDto]] = RV(None),
+                 targets: RV[List[NotifyTargetDto]] = RV(Nil),
                  skToken: RV[String] = RV(""))
 
-def initState() = State(imBusy = useAction())
+def initState() = {
+  // stui の許可の画面から戻ってきたときは「連携」を開く（?tab=integrations）
+  val tab = Option(new dom.URLSearchParams(dom.window.location.search).get("tab")).filter(t => tabs.exists(_._1 == t)).getOrElse("general")
+  State(tab = RV(tab), imBusy = useAction())
+}
 
 def mounted(s: State): Unit = {
   pageTitle("設定")
@@ -67,6 +72,7 @@ def mounted(s: State): Unit = {
     s.allow := x.allowSenders.mkString("\n"); s.block := x.blockSenders.mkString("\n")
   }
   loadRules(s)
+  Api.get[List[NotifyTargetDto]]("/api/me/notify-targets").foreach(s.targets := _)
   loadPasswords(s)
   loadKeys(s)
 }
@@ -149,8 +155,12 @@ def moveRule(s: State, r: FilterRuleDto, dir: Int): Unit = {
 }
 def condText(c: RuleConditionDto): String =
   s"${if (c.field == RuleField.Header) c.header.getOrElse("") else RuleField.label(c.field)} が「${c.value}」${RuleOp.label(c.op)}"
-def actText(a: RuleActionDto): String = RuleAction.label(a.kind) + a.arg.filter(_.nonEmpty).fold("")(x => s"（$x）")
-def summary(r: FilterRuleDto): String = r.conditions.map(condText).mkString(if (r.matchAll) " かつ " else " または ") + " → " + r.actions.map(actText).mkString("、")
+def actText(s: State, a: RuleActionDto): String = {
+  val arg = if (a.kind == RuleAction.Notify) a.arg.map(id => s.targets.v.find(_.id.toString == id).fold("削除された通知先")(_.name)) else a.arg
+  RuleAction.label(a.kind) + arg.filter(_.nonEmpty).fold("")(x => s"（$x）")
+}
+def summary(s: State, r: FilterRuleDto): String = r.conditions.map(condText).mkString(if (r.matchAll) " かつ " else " または ") + " → " + r.actions.map(actText(s, _)).mkString("、")
+def targetOpts(s: State) = s.targets.mapC(_.map(t => Opt(t.id.toString, t.name)))
 val fieldOpts: List[Opt] = RuleField.all.map(f => Opt(f, RuleField.label(f)))
 val opOpts: List[Opt] = RuleOp.all.map(o => Opt(o, RuleOp.label(o)))
 val actOpts: List[Opt] = RuleAction.all.map(a => Opt(a, RuleAction.label(a)))
@@ -263,6 +273,17 @@ def exportUrl(s: State) = s.exportBox.mapC(b => "/api/export" + (if (b.isEmpty) 
 
 def dropClass(s: State) = s.dropping.mapC(d => if (d) "dropzone on" else "dropzone")
 
+// ---------------------------------------------------------------- 連携（stui・skawau）
+
+def stuiAbout: String = {
+  val n = AppNames.nameOf("stui")
+  s"連携すると、新しいメールを $n の自分への DM や、参加しているチャンネルに知らせられます（下の「通知先」で設定します）。受信 Webhook なら、連携しなくても使えます。"
+}
+def skawauAbout: String = {
+  val n = AppNames.nameOf("skawau")
+  s"連携すると、メールを書くときに $n のファイルを添付したりリンクを入れたりでき、受け取ったメールの添付を $n に保存できます（振り分けの規則の「添付を skawau に保存」で自動でも）。"
+}
+
 // ---------------------------------------------------------------- 連携（skuaka）
 
 def skUrl(s: State) = s.integ.mapC(_.flatMap(_.skuakaUrl).getOrElse(""))
@@ -353,7 +374,7 @@ def port(f: ClientConfigDto => Option[Int]) = cfg.mapC(_.flatMap(f).map(_.toStri
         <p class="muted small">受け取ったメールに上から順に当てはめます（迷惑メールの判定の後）。</p>
         <div v-for="r in s.rules" :key="r.id" class="rule">
           <input type="checkbox" :checked="r.enabled" @change="toggleRule(s, r)" title="有効">
-          <div class="grow"><b>{{ r.name }}</b><div class="muted small">{{ summary(r) }}</div></div>
+          <div class="grow"><b>{{ r.name }}</b><div class="muted small">{{ s.targets.mapC(_ => summary(s, r)) }}</div></div>
           <button class="ghost small" title="上へ（先に適用します）" @click="moveRule(s, r, -1)">↑</button>
           <button class="ghost small" title="下へ" @click="moveRule(s, r, 1)">↓</button>
           <button class="small" @click="editRule(s, r)">編集</button>
@@ -381,6 +402,7 @@ def port(f: ClientConfigDto => Option[Int]) = cfg.mapC(_.flatMap(f).map(_.toStri
         <div v-for="ai in acts(s)" class="row cond">
           <Combo :value="ai._1.kind" :options="actOpts" :small="true" :onChange="v => setAct(s, ai._2)(_.copy(kind = v, arg = None))" />
           <Combo v-if="ai._1.kind == RuleAction.Move" :value="ai._1.arg.getOrElse(&quot;&quot;)" :live="Some(boxOpts)" :small="true" :onChange="v => setAct(s, ai._2)(_.copy(arg = Some(v)))" />
+          <Combo v-if="ai._1.kind == RuleAction.Notify" :value="ai._1.arg.getOrElse(&quot;&quot;)" :live="Some(targetOpts(s))" :small="true" placeholder="通知先を選ぶ（設定の「連携」で作る）" :onChange="v => setAct(s, ai._2)(_.copy(arg = Some(v)))" />
           <input v-if="ai._1.kind == RuleAction.Forward" type="email" placeholder="転送先のアドレス" :value="ai._1.arg.getOrElse(&quot;&quot;)" @input="setAct(s, ai._2)(_.copy(arg = Some(Dom.value(event))))" class="grow">
           <span class="grow"></span>
           <button class="ghost small" title="この動作を削除" @click="dropAct(s, ai._2)">✕</button>
@@ -529,6 +551,9 @@ def port(f: ClientConfigDto => Option[Int]) = cfg.mapC(_.flatMap(f).map(_.toStri
     </template>
 
     <template v-if="on(s, &quot;integrations&quot;)">
+      <LinkPanel provider="stui" kind="チャット" :about="stuiAbout" env="STUI_URL・STUI_CLIENT_ID・STUI_CLIENT_SECRET" />
+      <NotifyTargets :onChange="(l: List[NotifyTargetDto]) => s.targets := l" />
+      <LinkPanel provider="skawau" kind="ファイル共有" :about="skawauAbout" env="SKAWAU_URL・SKAWAU_CLIENT_ID・SKAWAU_CLIENT_SECRET" :onStatus="(l: LinkStatusDto) => Store.skawau := Some(l)" />
       <section class="panel">
         <h2>{{ AppNames.of("skuaka") }}（カレンダー）</h2>
         <p class="muted small">会議の招待のメールにある「カレンダーに追加」で、予定を {{ AppNames.of("skuaka") }} のカレンダーに足せるようにします。</p>

@@ -11,3 +11,7 @@ export SMTP_PORT=2525 SUBMISSION_PORT=2587 SMTPS_PORT=2465 IMAP_PORT=2143 IMAPS_
 export RELAY_HOST=localhost RELAY_PORT=1032 RELAY_TLS=none
 # OAuth の提供側: skakapo が利用者の権限で使う（送信は send のスコープ）
 export OAUTH_CLIENTS='[{"id":"skakapo","secret":"skakapo-dev-secret-0123456789","redirectUri":"http://localhost:5199/api/connections/callback","name":"skakapo","scopes":["read","write","send"]}]'
+# stui（チャット）への受信の通知（stui の OAUTH_CLIENTS に skereru を登録してある. 画面は :5178、サーバーから呼ぶのは :8098）
+export STUI_URL=http://localhost:5178 STUI_INTERNAL_URL=http://localhost:8098 STUI_CLIENT_ID=skereru STUI_CLIENT_SECRET=skereru-dev-secret-0123456789
+# skawau（ファイル共有）: 添付を skawau から付ける・skawau に保存する（skawau の OAUTH_CLIENTS に skereru を登録してある）
+export SKAWAU_URL=http://localhost:8092 SKAWAU_CLIENT_ID=skereru SKAWAU_CLIENT_SECRET=skereru-dev-secret-0123456789

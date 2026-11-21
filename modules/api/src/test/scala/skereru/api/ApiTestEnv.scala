@@ -30,7 +30,19 @@ trait ApiTestEnv extends CatsEffectSuite {
     )
   )
 
-  final case class Env(app: HttpApp[IO], users: UserStore)
+  /**
+   * hooks: 通知先（Webhook）に送った要求（本文付き）. 外へは送らず、ここに貯める.
+   * notifier: 受信の通知（送信待ちを送るのは試験から呼ぶ）.
+   */
+  final case class Env(app: HttpApp[IO],
+                       users: UserStore,
+                       hooks: java.util.concurrent.ConcurrentLinkedQueue[(Request[IO], String)],
+                       notifier: NotifyService,
+                       notifyStore: NotifyStore,
+                       skawau: FakeSkawau,
+                       skawauSvc: SkawauService,
+                       tokens: sbirds.links.IntegrationTokenStore,
+                       box: SecretBox)
 
   private val envFixture = ResourceSuiteLocalFixture(
     "env",
@@ -70,14 +82,51 @@ trait ApiTestEnv extends CatsEffectSuite {
           changes.publish
         )
         val sess = new SessionAuth(users, cfg)
+        val hooks = new java.util.concurrent.ConcurrentLinkedQueue[(Request[IO], String)]()
+        val hookHttp = org.http4s.client.Client.fromHttpApp(HttpApp[IO](r =>
+          r.bodyText.compile.string.flatMap(b => IO(hooks.add(r -> b))).as(Response[IO](Status.NoContent))
+        ))
+        val notifyStore = new NotifyStore(xa)
+        // 試験の送り先（hooks.example など）は名前を引けないので、宛先の確認はしない
+        val notifier =
+          new NotifyService(notifyStore, None, hookHttp, sbirds.net.NetGuard.Policy.allowAll, box, cfg.publicUrl)
         val adminSvc = new AdminService(xa, users, domains, mail, delivery, box, dns, mcfg, cfg)
         val mailSvc = new MailService(mail, users, domains, queue, blobs, delivery, mcfg, changes.publish, schedules)
+        val fake = new FakeSkawau
+        val tokens = new sbirds.links.IntegrationTokenStore(xa)
+        val skawauLink = new sbirds.links.LinkClient(
+          sbirds.links.LinkConfig(
+            "skawau",
+            FakeSkawau.Url,
+            FakeSkawau.Url,
+            "skereru",
+            "skereru-secret-0123456789",
+            "read write"
+          ),
+          org.http4s.client.Client.fromHttpApp(fake.app),
+          tokens,
+          box
+        )
+        val skawauSvc = new SkawauService(skawauLink, mailSvc, new SkawauSaveStore(xa), cfg.maxUploadBytes)
         val rest = new AuthRoutes(None, users, adminSvc, sess, cfg, mcfg).routes <+>
           new OAuthRoutes(new OAuthStore(xa), users, sess, cfg).routes <+>
-          new MeRoutes(users, domains, mail, queue, sess, mcfg).routes <+>
+          new MeRoutes(users, domains, mail, queue, sess, mcfg, notifyStore).routes <+>
+          new SkawauRoutes(Some(skawauSvc), sess).routes <+>
+          new LinkRoutes(Map("skawau" -> skawauLink), cfg.publicUrl, sess).routes <+>
+          new NotifyRoutes(notifier, None, sess).routes <+>
           new MailRoutes(mailSvc, mail, schedules, sess, cfg, changes).routes <+>
           new AdminRoutes(adminSvc, users, domains, mail, queue, delivery, new DmarcStore(xa), sess).routes
-        Env((rest <+> new McpRoutes(rest, sess, cfg.publicUrl, cfg.version).routes).orNotFound, users)
+        Env(
+          (rest <+> new McpRoutes(rest, sess, cfg.publicUrl, cfg.version).routes).orNotFound,
+          users,
+          hooks,
+          notifier,
+          notifyStore,
+          fake,
+          skawauSvc,
+          tokens,
+          box
+        )
       }
     }
   )

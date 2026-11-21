@@ -33,6 +33,7 @@ lazy val libStorage = ProjectRef(sbirdsLib, "storage")
 lazy val libDb = ProjectRef(sbirdsLib, "db")
 lazy val libNet = ProjectRef(sbirdsLib, "net")
 lazy val libOauth = ProjectRef(sbirdsLib, "oauth")
+lazy val libLinks = ProjectRef(sbirdsLib, "links")
 
 lazy val commonTest = Seq(
   libraryDependencies ++= Seq(
@@ -120,7 +121,7 @@ lazy val mail = (project in file("modules/mail"))
   .settings(commonTest)
 
 lazy val api = (project in file("modules/api"))
-  .dependsOn(core, db % "compile;test->test", auth, storage, mail, shared.jvm, libObserve, libHttp, libMcp, libPush)
+  .dependsOn(core, db % "compile;test->test", auth, storage, mail, shared.jvm, libObserve, libHttp, libMcp, libPush, libLinks)
   .settings(commonTest)
   .settings(
     libraryDependencies ++= Seq(

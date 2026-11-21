@@ -70,6 +70,11 @@ object Store {
 
   def reloadMe(): Unit = Api.me().foreach(m => me := Some(m))
 
+  /** skawau（ファイル共有）との連携の状態（作成の画面・スレッドの画面で「skawau から」「skawau に保存」を出すか）. */
+  val skawau: RV[Option[LinkStatusDto]] = RV(None)
+  def loadSkawau(): Unit = Api.get[LinkStatusDto]("/api/integrations/skawau").foreach(l => skawau := Some(l))
+  def skawauReady = skawau.mapC(_.exists(l => l.configured && l.connected))
+
   /** 何かを変えた直後（一覧・件数を取り直す）. */
   def changed(): Unit = { loadMailboxes(); tick := tick.v + 1 }
 

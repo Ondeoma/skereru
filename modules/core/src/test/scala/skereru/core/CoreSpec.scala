@@ -296,6 +296,24 @@ class CoreSpec extends munit.FunSuite {
     val o = Rules.apply(List(rule, other), m, Mime.parse(m), Nil)
     assertEquals(o.moveTo, Some("買い物"))
     assert(o.markRead && !o.flag)
+    assertEquals(o.notifyTargets, Nil)
+
+    // 通知先に知らせる: 当てはまった規則の通知先を、重ねずに集める
+    def notifyRule(pos: Int, ids: List[String]) =
+      rule.copy(
+        id = java.util.UUID.randomUUID(),
+        position = pos,
+        actions = ids.map(i => RuleActionDto(RuleAction.Notify, Some(i)))
+      )
+    val n = Rules.apply(List(notifyRule(0, List("t1", "t2")), notifyRule(1, List("t2", "t3"))), m, Mime.parse(m), Nil)
+    assertEquals(n.notifyTargets, List("t1", "t2", "t3"))
+    assert(Rules.validate(FilterRuleReq(
+      "x",
+      true,
+      true,
+      rule.conditions,
+      List(RuleActionDto(RuleAction.Notify, None))
+    )).isLeft)
   }
 
   test("検索の構文") {

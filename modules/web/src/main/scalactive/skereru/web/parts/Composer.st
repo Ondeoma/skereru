@@ -27,7 +27,8 @@ case class State(from: RV[String],
                  suggestFor: RV[String] = RV(""),
                  el: ElementRef[dom.HTMLElement] = ElementRef(),
                  editor: RV[Option[EditorHandle]] = RV(None),
-                 full: RV[Boolean] = RV(false))
+                 full: RV[Boolean] = RV(false),
+                 picker: RV[Boolean] = RV(false))
 
 def initState(props: Props) = {
   val i = props.draft.init
@@ -126,6 +127,26 @@ def addFiles(s: State, files: List[dom.File]): Unit =
     }
   }
 
+/** skawau のファイルを添付にする（サーバーが skawau から取ってきて、ふつうの添付と同じアップロードにする）. */
+def skawauAttach(s: State, items: List[SkawauItemDto]): Unit = if (items.nonEmpty) {
+  s.uploading := s.uploading.v + 1
+  Api.post[List[UploadDto]]("/api/integrations/skawau/attach", SkawauAttachReq(items.map(_.id)).asJson).onComplete { r =>
+    s.uploading := s.uploading.v - 1
+    r match {
+      case Success(us) => s.uploads := s.uploads.v ++ us; s.dirty := true
+      case Failure(e) => Toasts.error(e)
+    }
+  }
+}
+
+/** skawau のファイル・フォルダの URL を、本文のカーソルの位置にリンクとして入れる. */
+def skawauLink(s: State, items: List[SkawauItemDto]): Unit = if (items.nonEmpty)
+  Toasts.report(Api.post[List[SkawauLinkDto]]("/api/integrations/skawau/links", SkawauAttachReq(items.map(_.id)).asJson)) { ls =>
+    s.editor.v.foreach(e => ls.foreach(l => e.insertLink((if (l.isDir) "📁 " else "📄 ") + l.name, l.url)))
+    s.dirty := true
+  }
+def pickers(s: State) = s.picker.mapC(o => if (o) List(true) else Nil)
+
 def removeUpload(s: State, u: UploadDto): Unit = { s.uploads := s.uploads.v.filterNot(_.id == u.id); s.dirty := true }
 
 /** 宛先の欄の入力（最後の宛先で候補を出す）. */
@@ -206,10 +227,12 @@ def key(s: State, props: Props, e: dom.Event): Unit = {
       </div>
       <p v-if="uploadingNow(s)" class="muted small note">アップロード中…</p>
     </div>
+    <SkawauPicker v-for="_ in pickers(s)" :onClose="_ => s.picker := false" :onAttach="(l: List[SkawauItemDto]) => skawauAttach(s, l)" :onLink="(l: List[SkawauItemDto]) => skawauLink(s, l)" />
     <div class="foot">
       <button class="primary send" :disabled="s.sending" title="送信（送ったあと、少しの間は取り消せます）" @click="send(s, props)">{{ sendLabel(s) }}</button>
       <button class="ghost" :disabled="s.sending" title="日時を指定して送信" @click="sendLater(s, props)">⏰</button>
       <label class="btn ghost" title="ファイルを添付（本文にドロップしても添付できます）">📎<input type="file" multiple class="hidden" @change="attach(s, event)"></label>
+      <button v-if="Store.skawauReady" class="ghost" :title='AppNames.of("skawau").mapC(n => n + " のファイルを添付する・リンクを入れる")' @click="s.picker := true">☁️</button>
       <span class="grow"></span>
       <button class="ghost" title="下書きを保存" @click="saveDraft(s, props, false)">💾</button>
       <button class="ghost" title="破棄（このメールと下書きを削除します）" @click="discard(s, props)">🗑</button>

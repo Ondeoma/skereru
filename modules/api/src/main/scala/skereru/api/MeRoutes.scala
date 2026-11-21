@@ -23,7 +23,8 @@ final class MeRoutes(users: UserStore,
                      mail: MailStore,
                      queue: QueueStore,
                      val sessions: SessionAuth,
-                     mcfg: MailConfig)
+                     mcfg: MailConfig,
+                     notifyTargets: NotifyStore)
   extends RouteSupport {
 
   val routes: HttpRoutes[IO] = HttpRoutes.of[IO] {
@@ -185,15 +186,28 @@ final class MeRoutes(users: UserStore,
       body[FilterRuleReq](req)(r =>
         if forwards(r) && !s.can(ApiScope.Send) then needSend
         else
-          Rules.validate(r) match {
-            case Left(e) => err(ErrorCode.RuleInvalid, e)
-            case Right(v) => queue.rules(s.user.id).flatMap(rs =>
-                if rs.size >= 200 then err(ErrorCode.RuleTooMany)
-                else queue.createRule(s.user.id, v).flatMap(Created(_))
-              )
-          }
+          validRule(s.user.id, r)(v =>
+            queue.rules(s.user.id).flatMap(rs =>
+              if rs.size >= 200 then err(ErrorCode.RuleTooMany)
+              else queue.createRule(s.user.id, v).flatMap(Created(_))
+            )
+          )
       )
     )
+
+  /** 規則の入力の確認（「通知先に知らせる」の通知先が、本人のものかも確かめる）. */
+  private def validRule(userId: UUID, r: FilterRuleReq)(f: FilterRuleReq => IO[Response[IO]]): IO[Response[IO]] =
+    Rules.validate(r) match {
+      case Left(e) => err(ErrorCode.RuleInvalid, e)
+      case Right(v) =>
+        val wanted = v.actions.filter(_.kind == RuleAction.Notify).flatMap(_.arg.map(_.trim))
+        if wanted.isEmpty then f(v)
+        else
+          notifyTargets.targets(userId).flatMap { ts =>
+            val mine = ts.map(_.id.toString).toSet
+            if wanted.forall(mine.contains) then f(v) else err(ErrorCode.RuleInvalid, "通知先が見つかりません")
+          }
+    }
 
   private def putFiltersOrder(req: Request[IO]): IO[Response[IO]] =
     authed(req)(s => body[ReorderReq](req)(r => queue.reorderRules(s.user.id, r.ids) *> NoContent()))
@@ -203,12 +217,9 @@ final class MeRoutes(users: UserStore,
       body[FilterRuleReq](req)(r =>
         if forwards(r) && !s.can(ApiScope.Send) then needSend
         else
-          Rules.validate(r) match {
-            case Left(e) => err(ErrorCode.RuleInvalid, e)
-            case Right(v) => queue.updateRule(s.user.id, id, v).flatMap(n =>
-                if n == 0 then err(ErrorCode.RuleNotFound) else NoContent()
-              )
-          }
+          validRule(s.user.id, r)(v =>
+            queue.updateRule(s.user.id, id, v).flatMap(n => if n == 0 then err(ErrorCode.RuleNotFound) else NoContent())
+          )
       )
     )
 

@@ -135,7 +135,13 @@ object RuleAction {
   val Forward = "forward"
   val NotSpam = "not_spam"
   val Stop = "stop"
-  val all: List[String] = List(Move, MarkRead, Flag, Delete, Forward, NotSpam, Stop)
+
+  /** 通知先（stui・Webhook）に知らせる. arg は通知先の ID. */
+  val Notify = "notify"
+
+  /** 添付ファイルを skawau（ファイル共有）の「メールの添付」に保存する. */
+  val SaveSkawau = "save_skawau"
+  val all: List[String] = List(Move, MarkRead, Flag, Delete, Forward, NotSpam, Notify, SaveSkawau, Stop)
   def label(a: String): String = a match {
     case Move => "メールボックスへ移動"
     case MarkRead => "既読にする"
@@ -144,9 +150,11 @@ object RuleAction {
     case Forward => "転送する"
     case NotSpam => "迷惑メールにしない"
     case Stop => "以降の規則を適用しない"
+    case Notify => "通知先に知らせる"
+    case SaveSkawau => "添付を skawau に保存"
     case _ => a
   }
-  def needsArg(a: String): Boolean = a == Move || a == Forward
+  def needsArg(a: String): Boolean = a == Move || a == Forward || a == Notify
 }
 
 // ---------------------------------------------------------------- 自分・アドレス
@@ -578,6 +586,90 @@ final case class CalendarAddedDto(url: String) derives Encoder.AsObject, Decoder
 /** 兄弟のサービスとの連携の状態. skuakaUrl はサーバーに設定された skuaka（なければ連携できない）. */
 final case class IntegrationsDto(skuakaUrl: Option[String], skuakaConnected: Boolean) derives Encoder.AsObject, Decoder
 final case class TokenReq(token: String) derives Encoder.AsObject, Decoder
+
+// ---------------------------------------------------------------- 通知先（stui・Webhook）
+
+/** 通知先の種類. */
+object NotifyKind {
+
+  /** stui（OAuth で連携した本人のトークンで、自分への DM か、参加しているチャンネルへ投稿する）. */
+  val Stui = "stui"
+
+  /** stui・Slack・Mattermost の受信 Webhook（{"text": …} を送る）. */
+  val ChatHook = "chat_hook"
+
+  /** 署名（HMAC-SHA256）付きの JSON を送る Webhook. */
+  val Webhook = "webhook"
+  val all: List[String] = List(Stui, ChatHook, Webhook)
+  def label(k: String): String = k match {
+    case Stui => "stui（連携）"
+    case ChatHook => "受信 Webhook（stui・Slack・Mattermost）"
+    case Webhook => "Webhook（署名付きの JSON）"
+    case _ => k
+  }
+}
+
+/**
+ * 通知先. allInbox なら受信トレイの新着をすべて知らせる（振り分けの規則の「通知先に知らせる」でも選べる）.
+ * stui: channelId が None なら自分への DM（channelName は表示用）. chat_hook・webhook: url に送る. secret は webhook の署名の鍵.
+ * lastError は、最後に送れなかったときの理由.
+ */
+final case class NotifyTargetDto(id: UUID,
+                                 name: String,
+                                 kind: String,
+                                 channelId: Option[String],
+                                 channelName: Option[String],
+                                 url: Option[String],
+                                 secret: Option[String],
+                                 allInbox: Boolean,
+                                 enabled: Boolean,
+                                 lastError: Option[String],
+                                 createdAt: Timestamp) derives Encoder.AsObject, Decoder
+
+final case class NotifyTargetReq(name: String,
+                                 kind: String,
+                                 channelId: Option[String],
+                                 channelName: Option[String],
+                                 url: Option[String],
+                                 allInbox: Boolean,
+                                 enabled: Boolean) derives Encoder.AsObject, Decoder
+
+/**
+ * 兄弟のサービス（stui・skawau）との連携の状態. configured: 管理者が設定したか. name: sruru に登録した表示名.
+ * lastError: 最後に失敗した裏の処理の理由（skawau への自動の保存など）.
+ */
+final case class LinkStatusDto(configured: Boolean,
+                               connected: Boolean,
+                               url: Option[String],
+                               name: String,
+                               lastError: Option[String] = None)
+  derives Encoder.AsObject, Decoder
+
+// ---------------------------------------------------------------- skawau（ファイル共有）
+
+/** skawau のファイル・フォルダ（選ぶ画面に出す分だけ）. */
+final case class SkawauItemDto(id: UUID, name: String, isDir: Boolean, size: Long, contentType: Option[String])
+  derives Encoder.AsObject, Decoder
+
+/** skawau のフォルダの中身. path はルートからのパンくず（id・名前）. */
+final case class SkawauFolderDto(id: UUID, name: String, path: List[SkawauItemDto], items: List[SkawauItemDto])
+  derives Encoder.AsObject, Decoder
+
+/** skawau のファイルをメールに付ける（添付にする）. */
+final case class SkawauAttachReq(ids: List[UUID]) derives Encoder.AsObject, Decoder
+
+/** skawau のファイル・フォルダの URL（本文にリンクとして入れる）. */
+final case class SkawauLinkDto(id: UUID, name: String, url: String, isDir: Boolean) derives Encoder.AsObject, Decoder
+
+/** メールの添付を skawau に保存する. parts が空ならすべての添付. folderId がなければ「メールの添付」フォルダ. */
+final case class SkawauSaveReq(messageId: UUID, parts: List[String], folderId: Option[UUID])
+  derives Encoder.AsObject, Decoder
+
+/** 保存したファイル（名前は、同じ名前があって変えたときは変えた後の名前）. */
+final case class SkawauSavedDto(saved: List[SkawauLinkDto], folderUrl: Option[String]) derives Encoder.AsObject, Decoder
+
+/** 通知先に選べる stui のチャンネル. */
+final case class StuiChannelDto(id: String, name: String, kind: String) derives Encoder.AsObject, Decoder
 
 /** 利用者が OAuth で許可した外部のサービス（skakapo など）。設定の画面で確認・取り消しができる. */
 final case class OAuthGrantDto(clientId: String,

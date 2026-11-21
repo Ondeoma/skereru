@@ -33,6 +33,13 @@ final class Delivery(mail: MailStore,
   /** 受信トレイに新しいメールが届いたとき（ユーザー・メッセージ・解析した本文. 起動時にプッシュ通知をつなぐ）。待たずに裏で動かす。 */
   @volatile var onInboxMail: (UUID, UUID, MimePart) => IO[Unit] = (_, _, _) => IO.unit
 
+  /**
+   * メールを保存したとき（迷惑メール・ゴミ箱へ入れたものを除く. 起動時に stui・Webhook への通知と skawau への保存をつなぐ）。待たずに裏で動かす。
+   * 引数: ユーザー・メッセージ・解析した本文・入れたメールボックスの名前・受信トレイの新着か・振り分けの規則の結果。
+   */
+  @volatile var onMailStored: (UUID, UUID, MimePart, String, Boolean, Rules.Outcome) => IO[Unit] =
+    (_, _, _, _, _, _) => IO.unit
+
   /** アドレスが配送先として存在するか（+tag・キャッチオールも見る）。転送先は再帰的にたどる。 */
   def resolve(rcpt: String, depth: Int = 0): IO[Option[Target]] = {
     val a = rcpt.toLowerCase
@@ -241,8 +248,15 @@ final class Delivery(mail: MailStore,
               m <- mail.insert(uid, box2.get.id, meta)
               _ <- notify(uid)
               // 受信トレイに入った（迷惑メール・既読にする規則のものを除く）新着は、プッシュ通知で知らせる
-              _ <- IO.whenA(!isJunk && !o.markRead && box2.exists(_.specialUse.contains(SpecialUse.Inbox)))(
+              inboxNew = !isJunk && !o.markRead && box2.exists(_.specialUse.contains(SpecialUse.Inbox))
+              _ <- IO.whenA(inboxNew)(
                 onInboxMail(uid, m.id, root).handleErrorWith(e =>
+                  Log.report(ErrorCode.NewMailHookFailed, e.toString, e)
+                ).start.void
+              )
+              // stui・Webhook への通知（受信トレイの新着と、規則で「通知先に知らせる」を選んだもの）と、規則の「添付を skawau に保存」
+              _ <- IO.whenA(!isJunk && !o.trash && (inboxNew || o.notifyTargets.nonEmpty || o.saveAttachments))(
+                onMailStored(uid, m.id, root, box2.fold("")(_.name), inboxNew, o).handleErrorWith(e =>
                   Log.report(ErrorCode.NewMailHookFailed, e.toString, e)
                 ).start.void
               )

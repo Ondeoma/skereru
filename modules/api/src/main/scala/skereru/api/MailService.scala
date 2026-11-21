@@ -212,6 +212,25 @@ final class MailService(mail: MailStore,
         }
     })
 
+  /**
+   * 添付ファイル（本文に埋め込んだ画像を除く）の中身. parts（部品番号）が空ならすべて。(部品番号, ファイル名, 種類, 中身)。
+   * 名前のない添付は、画面の表示と同じ「無題.<種類>」にする。
+   */
+  def attachments(userId: UUID, id: UUID, parts: List[String]): Res[List[(String, String, String, Array[Byte])]] =
+    load(userId, id).map(_.map {
+      (_, raw) =>
+        val root = Mime.parse(raw)
+        val leaves = root.leaves()
+        val htmlRaw = leaves.find((_, p) => p.mimeType == "text/html" && !p.isAttachment).map((_, p) =>
+          Mime.text(raw, p)
+        ).getOrElse("")
+        leaves.filter((_, p) => p.isAttachment && !p.contentId.exists(c => htmlRaw.contains(s"cid:$c")))
+          .filter((path, _) => parts.isEmpty || parts.contains(partPath(path)))
+          .map((path, p) =>
+            (partPath(path), p.filename.getOrElse(s"無題.${p.subType}"), p.mimeType, Mime.content(raw, p))
+          )
+    })
+
   /** まとめての変更（既読・スター・移動・迷惑メールの報告・削除）。 */
   def update(userId: UUID, r: UpdateMessagesReq): Res[Int] = {
     val ids = r.ids.distinct.take(1000)

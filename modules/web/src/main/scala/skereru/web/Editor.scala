@@ -32,6 +32,10 @@ final class EditorHandle private[web] (t: Tiptap, wrap: dom.Element) {
   def getText(): String = t.getText().replace(' ', ' ')
   def isEmpty(): Boolean = t.isEmpty
   def focus(): Unit = t.focus()
+
+  /** カーソルの位置にリンクを入れる（text を href のリンクにする）. */
+  def insertLink(text: String, href: String): Unit =
+    t.run("insertLink", scala.scalajs.js.JSON.stringify(scala.scalajs.js.Dynamic.literal(href = href, text = text)))
   def destroy(): Unit = { t.destroy(); wrap.remove() }
 }
 

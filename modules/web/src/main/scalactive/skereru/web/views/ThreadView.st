@@ -1,5 +1,6 @@
 <script lang="scala">
 import skereru.web.*
+import skereru.web.parts.*
 import io.circe.syntax.*
 import org.scalajs.dom
 import skereru.shared.*
@@ -16,9 +17,24 @@ case class State(thread: RV[Option[ThreadDto]] = RV(None),
                  details: RV[List[UUID]] = RV(Nil),
                  error: RV[String] = RV(""),
                  invites: RV[Map[String, InviteDto]] = RV(Map.empty),
-                 unregister: RV[Option[() => Unit]] = RV(None))
+                 unregister: RV[Option[() => Unit]] = RV(None),
+                 saving: RV[Option[(UUID, List[String])]] = RV(None))
 
 def initState() = State()
+
+// ---------------------------------------------------------------- skawau に保存
+
+/** 保存先を選ぶ画面を開く（parts が空なら、そのメールの添付をすべて）. */
+def askSave(s: State, m: MessageDetailDto, parts: List[String]): Unit = s.saving := Some((m.summary.id, parts))
+def savers(s: State) = s.saving.mapC(_.toList)
+def saveTo(s: State, folder: Option[UUID]): Unit = s.saving.v.foreach { (id, parts) =>
+  val n = AppNames.nameOf("skawau")
+  Toasts.report(Api.post[SkawauSavedDto]("/api/integrations/skawau/save", SkawauSaveReq(id, parts, folder).asJson)) { r =>
+    val names = r.saved.map(_.name).mkString("、")
+    // 「開く」で skawau の保存先のフォルダを新しいタブで開く
+    Toasts.show(s"$n に保存しました: $names", action = r.folderUrl.map(u => ("開く", () => { dom.window.open(u, "_blank", "noopener"); () })), ms = Some(10000))
+  }
+}
 
 // ---------------------------------------------------------------- 会議の招待
 
@@ -225,7 +241,9 @@ def cardClass(s: State, m: MessageDetailDto) = s.open.mapC(o => if (o.contains(m
         <div v-if="files(m).nonEmpty" class="files">
           <a v-for="a in files(m)" class="file" :href="partUrl(m, a)" :title="a.filename">
             <span class="fi">📄</span><span class="fname">{{ a.filename }}</span><span class="muted small">{{ Fmt.bytes(a.size.toLong) }}</span>
+            <button v-if="Store.skawauReady" type="button" class="ghost small save" :title='AppNames.of("skawau").mapC(_ + " に保存")' @click.prevent.stop="askSave(s, m, List(a.part))">☁️</button>
           </a>
+          <button v-if="Store.skawauReady" type="button" class="small" @click="askSave(s, m, Nil)">☁️ すべて {{ AppNames.of("skawau") }} に保存</button>
         </div>
         <div class="actions">
           <button @click="reply(m, &quot;reply&quot;)">↩︎ 返信</button>
@@ -235,10 +253,12 @@ def cardClass(s: State, m: MessageDetailDto) = s.open.mapC(o => if (o.contains(m
         </div>
       </template>
     </div>
+    <SkawauPicker v-for="_ in savers(s)" :folderMode="true" :onClose="_ => s.saving := None" :onFolder="(f: Option[UUID]) => saveTo(s, f)" />
   </div>
 </template>
 
 <style scoped>
+.file .save { padding: 0 .2rem; }
 .invite { border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 8px; padding: .7rem .9rem; margin: .6rem 0; background: var(--side); }
 .invite .cal { font-size: 1.6rem; }
 .invite .ititle { font-weight: 700; }

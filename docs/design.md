@@ -32,7 +32,7 @@
 
 ## プロトコルの実装
 
-- SMTP・IMAP・POP3 は、接続ごとに仮想スレッド（JDK 21）で動かすブロッキングな実装。行・リテラルの読み書きと STARTTLS の切り替えが素直に書ける。
+- SMTP・IMAP・POP3 は、接続ごとに仮想スレッド（JDK 21 から。JDK 24 からは synchronized の中で待っても土台のスレッドを占めない）で動かすブロッキングな実装。行・リテラルの読み書きと STARTTLS の切り替えが素直に書ける。
   DB などの IO は `Dispatcher` で呼ぶ（`Bridge`）。
 - MIME は自前の解析器（`core/Mime.scala`）。IMAP の `BODY[1.2.MIME]` などはバイト位置で切り出す必要があるため、元のバイト列の位置を保つ。
   組み立て（送信）は Jakarta Mail を使う。

@@ -62,7 +62,7 @@ skereru は、SMTP・IMAP・POP3 を備えたメールサーバーです。Gmail
 
 ## 開発
 
-必要なもの: JDK 21、sbt、Node.js、Docker。
+必要なもの: JDK 25、sbt、Node.js、Docker。
 
 ```bash
 docker compose -f docker-compose.dev.yml up -d --wait   # PostgreSQL+PGroonga (:54370)、Mailpit（外への送信の受け先。画面 :8032）

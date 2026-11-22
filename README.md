@@ -56,7 +56,7 @@ skereru は、SMTP・IMAP・POP3 を備えたメールサーバーです。Gmail
 | `frontend/` | Vite。Scala.js の出力と Tiptap（メールの作成のエディタ）をまとめてビルドする |
 | `deploy/` | Docker（試験用の3ノード構成）と VM 構築用の設定のひな形 |
 
-技術: Scala 3.3 LTS、Cats Effect 3、http4s 1.0（マイルストーン版）、doobie、Flyway、PostgreSQL 17 + PGroonga、Jakarta Mail（組み立て）、jsoup、Scala.js + Scalactive、Tiptap。
+技術: Scala 3.9 LTS、Cats Effect 3、http4s 1.0（マイルストーン版）、doobie、Flyway、PostgreSQL 17 + PGroonga、Jakarta Mail（組み立て）、jsoup、Scala.js + Scalactive、Tiptap。
 兄弟プロジェクト: [skiwi](https://github.com/Ondeoma/skiwi)・[skawau](https://github.com/Ondeoma/skawau)・[skea](https://github.com/Ondeoma/skea)・
 [skuaka](https://github.com/Ondeoma/skuaka)・[skaka](https://github.com/Ondeoma/skaka)。
 

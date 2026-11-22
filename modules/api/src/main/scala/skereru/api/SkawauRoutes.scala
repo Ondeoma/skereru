@@ -2,7 +2,6 @@ package skereru.api
 
 import cats.effect.*
 import org.http4s.*
-import org.http4s.circe.CirceEntityCodec.*
 import skereru.core.ErrorCode
 import skereru.shared.*
 
